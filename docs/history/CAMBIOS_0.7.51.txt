@@ -1,0 +1,18 @@
+QuestHelper 0.7.51 — Corrección de alternancia al modificar watches
+
+Problema reproducido en capturas de 0.7.50:
+- En zone_level_asc los empates de nivel no usaban título como criterio secundario: el filtro alteraba la watch list y por tanto cambiaba el orden de las misiones.
+- Filtro, resaltados y filas auxiliares consultaban criterios distintos de «lista para entregar»; algunos permitían un estado completo aunque hubiera objetivos 0/1.
+- El reflow leía GetLeft() de bloques previamente movidos por el propio addon y tomaba sus coordenadas como geometría nativa. Algunos EndLayout volvían a registrar anclajes de nuestro layout.
+- El addon podía ocultar bloques marcados como no usados, interfiriendo con el reciclado del pool nativo.
+
+Cambios:
+- Orden determinista: zona, nivel (según modo), título y orden original (último desempate); cache de títulos que tolera lecturas momentáneamente nulas durante un intercambio de seguimiento.
+- QuestHelper_Status.lua como verificación conservadora compartida: un objetivo marcado no completado bloquea siempre la interpretación de «entregable».
+- El filtro suprime reflows propios mientras modifica watches; tras completar el swap se hace un refresco agrupado y se reinicia el desplazamiento de la vista temporal.
+- La posición de las filas usa un mismo borde izquierdo de ContentsFrame, no la posición previa de cada bloque. Solo se recapturan anclajes nativos cuando han cambiado respecto a los puestos por el addon.
+- No se esconden bloques de Blizzard ya liberados y solo se utiliza un bloque nativo si aún corresponde a su questID.
+- Sin modificaciones en SavedVariables, macros, inventario, placas, anuncios o búsqueda.
+- Pruebas automatizadas de estados contradictorios, conmutación de watch list y desempates; las pruebas dentro de Forever siguen pendientes.
+
+Comando de diagnóstico de solo lectura: /qh trackerdiag (N=nativo, A=auxiliar).

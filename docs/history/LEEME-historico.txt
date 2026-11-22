@@ -1,0 +1,684 @@
+NOTA 0.7.51 — 22/11/2026
+Corrige la alternancia de orden y estado de misiones al añadir seguimiento o aplicar y quitar el filtro «?». Las misiones del mismo nivel siempre desempatan por título; filtro, resaltados y filas auxiliares usan el mismo criterio conservador de entrega; se descartan marcas de completado incompatibles con objetivos visibles pendientes. Se evita copiar posiciones previamente aplicadas por el addon y todas las filas comparten un mismo borde izquierdo. Mientras el filtro cambia watches, la reorganización queda aplazada hasta el final. Comando de diagnóstico: /qh trackerdiag. Pendiente de verificar en WoW Forever 1.60.1: el cliente real es la prueba decisiva sobre taint, anchura y tipografía.
+
+NOTA 0.7.50 — 22/11/2026
+Corrige la sangría y los indicadores erróneos de las misiones dibujadas como filas de reserva cuando Blizzard no crea suficientes bloques. Las filas auxiliares replican el desplazamiento del título y de los objetivos de un bloque nativo y establecen expresamente los estilos de misión en curso y lista para entregar. Se conserva el resto de la versión 0.7.49. Requiere comprobar en WoW Forever.
+
+QuestHelper 0.7.49 — Recuperacion del seguimiento con zonas, geometria y desplazamiento (candidato)
+- Base: 0.7.48. No se sustituye QuestObjectiveTracker.EnumQuestWatchData.
+- Correccion del ancho/alto: cada bloque nativo mantiene dimensiones medidas antes de recolocarlo, usando dos anclajes.
+- Recuperada la rueda de desplazamiento: paginacion discreta basada en las filas del rastreador, con el limite de altura del cliente.
+- Cuando Blizzard no crea bloques por falta de espacio, crea solo filas de reserva para esas misiones, reutilizando, si existen, las fuentes de los bloques nativos. No sustituye el rastreador entero ni cambia la lista de misiones seguidas.
+- Zonas agrupadas, plegado por personaje, ordenacion por nivel, busqueda y filtro reversible conservados.
+- Los encabezados usan el objeto tipografico y color del titulo nativo "Misiones" y las flechas TGA existentes.
+- Resaltados de filas repintados al terminar el reflow; las filas de reserva tambien admiten resaltado.
+- No llama MarkDirty, Update, UpdateAll, LayoutContents ni UpdateHeight desde los handlers del addon. No cambia availableHeight ni contentsHeight.
+- Se suspende el layout propio en combate/auras secretas; se usan hooksecurefunc de observacion y API publicas.
+- Pruebas automatizadas: sintaxis Lua de 9 modulos; harness mock tests/test_tracker.lua sobre 9 misiones (incluida una prueba con 4 bloques nativos ausentes).
+- PENDIENTE: probar en el cliente real la compatibilidad con las acciones nativas de las filas de reserva, texto largo, su posicion exacta, el flujo de Edit Mode/Social, el nivel de personaje y el taint.
+- Si el cliente no permite adjuntar la rueda a un frame no protegido, la paginacion no se activara; no fuerza mecanismos protegidos.
+- No borra SavedVariables; se conservan todas las opciones y el filtro de entregables de la 0.7.48.
+
+QuestHelper 0.7.41 — Encabezados con la tipografia y color del titulo nativo "Misiones"
+- Las zonas copian de QuestObjectiveTracker.Header.Text la fuente, tamano, color y sombra, en vez de usar gris fijo y Game15Font_Shadow.
+- Las flechas usan el mismo color que el encabezado. Al pasar el raton se iluminan ligeramente.
+- Se conservan las coordenadas de las zonas y de las misiones de la 0.7.40.
+- No cambia ni la ordenacion, ni el plegado, ni el filtro de entregables, ni la logica del rastreador.
+- Pendiente de validar visualmente dentro de WoW Forever.
+
+QuestHelper 0.7.40 — Aspecto original de los encabezados restaurado
+- Las zonas recuperan el color gris original (DISABLED_FONT_COLOR) y el resaltado al pasar el cursor.
+- Se recupera la alineación original: encabezado de zona 12 px a la izquierda respecto a 0.7.39 y texto a 7 px del encabezado (antes 23).
+- Las misiones conservan intactas su posición y sangría; solo se reposicionan nuestros encabezados.
+- Las flechas TGA siguen indicando zona abierta (abajo) y plegada (derecha).
+- El botón «?» sigue cambiando de gris a dorado cuando está activo; sin cambios funcionales en filtros, ordenación, taint o seguimiento.
+
+QuestHelper 0.7.39 — Indicador activo y flechas fiables
+- La ? de entregables se muestra dorada cuando el filtro está activo y gris cuando no lo está.
+- Los encabezados propios de QuestHelper muestran flechas por textura TGA en lugar de caracteres que la fuente no admite.
+- Sin modificaciones de seguimiento, ordenación, taint ni API de Blizzard respecto de la 0.7.38.
+
+QuestHelper 0.7.38 — Filtro nativo temporal de misiones listas para entregar
+- El botón «Entregar» y su panel superpuesto se ELIMINAN.
+- Nueva interrogación «?» de 20x20, estilo sencillo, junto a la lupa original.
+- Una pulsación guarda por personaje la lista REAL de misiones seguidas y la
+  reemplaza por todas las misiones entregables del diario (seguidas o no).
+- Los cambios de seguimiento efectuados con el filtro activo NO reescriben
+  la instantánea original; las misiones listas se mantienen actualizadas
+  mediante eventos. El filtro no crea filas ni otro rastreador.
+- Otra pulsación restaura las misiones originalmente seguidas que sigan en el
+  diario. Omite IDs entregados, abandonados, inexistentes o ya no disponibles.
+- La copia original se guarda en SavedVariablesPerCharacter ANTES de modificar
+  Blizzard. Si ocurre un /reload en medio, se intenta la recuperación automática
+  al volver a entrar al mundo en vez de reactivar el filtro temporal.
+- Solo se usan C_QuestLog.GetNumQuestWatches / GetQuestIDForQuestWatchIndex /
+  AddQuestWatch / RemoveQuestWatch. Sin reemplazos, hooks ni API internas.
+- Toda mutación se comprueba leyendo de nuevo el estado de seguimiento; si
+  falla una operación se intenta restaurar la copia, o se deja pendiente para
+  un evento posterior si el cliente lo impide. No se actúa en combate ni con
+  secretos activos. No hay sondeo por frame.
+- No se activa si más de 25 misiones están listas: capacidad nativa de Forever.
+- Se conserva todo el resto de la versión 0.7.37 (zonas, orden, flechas,
+  buscador, marcados) sin cambios.
+- Pruebas locales con mocks de las API, incluida recuperación tras reload,
+  misión entregada, ediciones externas y fallos de AddQuestWatch. Queda por
+  verificar en juego (el cliente puede seguir aplicando restricciones de taint).
+
+QuestHelper 0.7.37 — Flechas de zonas visibles
+- Los indicadores de plegado ahora se dibujan con trazos de textura nativa dentro del botón de la zona.
+- Flecha hacia abajo: zona abierta; flecha hacia la derecha: zona plegada.
+- Si el cliente no permite girar texturas, se utiliza "v" / ">" como alternativa compatible.
+- Mantiene el filtro de entregables, las zonas y la ordenación sin modificar su lógica.
+- El cambio está validado estáticamente y debe comprobarse visualmente dentro de WoW Forever.
+
+QuestHelper 0.7.36 — Flechas de plegado en las zonas
+- Zona desplegada: flecha ▼ hacia abajo.
+- Zona plegada: flecha ▶ hacia la derecha.
+- El cambio es únicamente visual; no modifica la agrupación, ordenación, búsqueda, filtro de entregables ni sus hooks.
+- Pendiente de comprobar la visualización de estos caracteres en el cliente WoW Forever.
+
+QuestHelper 0.7.35 — Sin guion en las zonas desplegadas
+- Elimina el indicador «−» delante del encabezado cuando una zona está abierta.
+- Conserva el signo «+» cuando está plegada.
+- No modifica la sangría, la agrupación, la ordenación ni la interacción con el rastreador de Blizzard.
+
+QuestHelper 0.7.34 — filtro manual de misiones para entregar
+
+- Botón «Entregar» en la cabecera del rastreador, junto a la lupa.
+- Al activarlo muestra únicamente las misiones listas para entregar de TODO el diario,
+  incluidas las que no están marcadas como seguidas.
+- Agrupación por zonas y orden por nivel ascendente dentro de cada zona.
+- La vista se integra temporalmente en el rastreador y admite desplazamiento
+  con la rueda; no muestra notificaciones automáticas ni reproduce sonidos.
+- Al desactivar el botón aparece inmediatamente el seguimiento original.
+- No añade ni elimina seguimientos, no modifica estados del diario, ni reemplaza
+  funciones nativas de Blizzard. No ejecuta lecturas durante combate o auras secretas.
+- El filtro se actualiza al cambiar el diario, con eventos y debounce de 0,10 s.
+- Pruebas locales simuladas; pendiente de verificar en cliente Forever 1.60.1.
+
+QuestHelper 0.7.33 — rastreador nativo con agrupación posterior segura (beta)
+
+- Eliminada la sustitución de QuestObjectiveTracker.EnumQuestWatchData.
+- El cliente dibuja sus propias misiones; un hooksecurefunc posterior a EndLayout
+  coloca visualmente los bloques existentes y los agrupa por zonas.
+- Orden ascendente por nivel DENTRO de cada zona al elegir «Nativo» (o «Por zona»);
+  los empates se resuelven alfabéticamente. Se respetan modos explícitos descendentes.
+- Zonas plegables, buscador visual y resaltados temporales en la propia misión.
+  Sin paneles de notificaciones, ventanas emergentes ni marcas en categorías.
+- No llama a MarkDirty(), UpdateAll() ni cambia la lista de misiones seguidas.
+  Ninguna modificación visual se ejecuta durante combate o con auras secretas.
+- La paginación por rueda (beta) queda SUSPENDIDA: su implementación anterior
+  dependía de interceptar un enumerador interno; se conserva el ajuste guardado.
+- El buscador solo puede filtrar bloques ya renderizados por Blizzard.
+- La presentación debe respetar el espacio disponible: si la altura es escasa,
+  puede mostrar menos misiones que el rastreador sin secciones.
+- Comprobación local con Lua 5.4, mock de zonas/orden/plegado y restauración.
+  WoW Forever 1.60.1 debe validar especialmente Settings > Social y subir de nivel.
+
+QuestHelper 0.7.32 — correccion de ordenacion del seguimiento
+- Ordenacion VISUAL y estable. Ya no deja de seguir y vuelve a seguir misiones.
+- Cuando agrupar por zonas esta activado, ordena las ZONAS alfabeticamente
+  ("Otras misiones" al final) y despues las misiones segun el criterio elegido.
+- Con agrupacion desactivada, nivel/nombre/zona ordenan directamente el listado.
+- Nativo sin zonas conserva el orden real de Blizzard.
+- Se mantienen el plegado, buscador, paginacion y los resaltados en las filas.
+- Se elimina la vieja estrella de la categoria, sin paneles emergentes.
+- Verificar en el cliente Forever el taint al subir de nivel (no se garantiza).
+
+## 0.7.31 - Restauración de funcionalidades
+
+Esta revisión recupera íntegramente la ordenación original de la versión 0.7.27
+(incluido el orden por zonas y los modos por nivel/nombre). Conserva la
+agrupación y el plegado originales. Desactiva la antigua estrella de zona y
+muestra resaltados dentro de la fila de misión, sin notificaciones.
+
+Mitigación de taint: los eventos automáticos de misión y la salida de combate
+no fuerzan MarkDirty si no hay un refresco pendiente. La actualización
+forzada por cambios explícitos de configuración o el plegado permanece intacta.
+La traza de secret auras aún requiere validación en WoW Forever.
+
+
+v0.7.27 — Mitigación de contaminación del seguimiento (taint de auras secretas):
+- Evita forzar MarkDirty() cuando las auras son secretas y realiza el marcado de dirty con securecallfunction cuando está disponible.
+- La estrella de misiones nuevas usa hooksecurefunc(UpdateSingle) de forma independiente: no necesita reemplazar EnumQuestWatchData cuando zonas, búsqueda y paginación están desactivadas. No fuerza redibujos por aceptación o expiración; retira las estrellas directamente.
+- Evita paginación, inserción de separadores y cambios de seguimiento mientras están secretas las auras.
+- Si una actualización debe posponerse, vuelve a intentarse con un evento real fuera de secretos, sin polling.
+- Requiere prueba in-game. Blizzard también tiene incidencias propias de ShouldShowMawBuffs; si el error persiste con los separadores activados, desactívalos temporalmente.
+
+v0.7.26 — Identificacion temporal de misiones nuevas:
+- Estrella dorada junto al titulo durante 30 segundos tras QUEST_ACCEPTED.
+- Una estrella en la cabecera de una zona plegada indica que contiene una nueva mision.
+- Opcion «Destacar misiones nuevas (30 segundos)», activada por defecto.
+- No modifica watches, orden, objetivos, cabeceras nativas ni altura de bloques.
+- Sin OnUpdate: un unico C_Timer.After(30) por mision nueva y limpieza por eventos.
+- Las misiones que ya estaban seguidas al iniciar no se resaltan.
+
+v0.7.25 — Agrupación visual estable por zona
+- Corrige la duplicación de encabezados si Blizzard devuelve las misiones de una
+  misma zona intercaladas con otras (durante altas, bajas, ordenación o scroll).
+- Cada zona aparece una sola vez por reconstrucción, incluso con paginación beta
+  y zonas plegadas; conserva el orden relativo de las misiones en cada zona.
+- No modifica las misiones seguidas, la selección, el superseguimiento ni el diario.
+- Comprobado en cliente Lua simulado, con 1.000 transiciones aleatorias.
+- Pendiente de validación dentro de World of Warcraft Forever.
+
+v0.7.24 — Robustez (revisión de casos límite)
+- Evita encabezados huérfanos al final del seguimiento cuando la siguiente misión no cabe.
+- Ordenación nativa: aceptar, abandonar o seleccionar una misión durante la comprobación diferida ya no suspende el ordenador para el resto de la sesión; se reevalúa la lista vigente.
+- No cambia los ajustes ni el funcionamiento de la beta de desplazamiento.
+- Pruebas de integración con un cliente Lua simulado; comprobar en Forever antes de considerar estos casos definitivamente resueltos.
+
+v0.7.23 (beta): Desplazamiento por misiones en el seguimiento lateral (opcional, DESACTIVADO por defecto).
+- Opciones > Seguimiento nativo de Blizzard > "Desplazamiento por misiones (beta)".
+- Rueda abajo/arriba sobre el seguimiento: avanza/retrocede una misión sin modificar qué misiones siguen marcadas.
+- El motor nativo sigue colocando bloques y limitando la altura. Conserva búsqueda y zonas plegadas.
+- No se desplaza durante el combate. El desplazamiento es discreto, sin ScrollFrame, OnUpdate ni timers.
+- Beta: falta validar en cliente real (rueda, gamepad, animaciones y otros addons del tracker).
+
+TisteltiUtils QuestHelper v0.7.22
+
+- Correccion: la X del buscador ahora oculta el campo cuando queda vacio y sin foco,
+  incluso si el boton nativo hizo perder el foco antes de borrar el texto.
+- Se respeta «Mantener busqueda al perder el foco»: solo se retienen
+  las busquedas con texto. Los demas ajustes permanecen intactos.
+
+TisteltiUtils QuestHelper v0.7.21
+Buscador nativo en seguimiento: se puede desactivar la lupa desde Opciones > Addons.
+Mantener búsqueda al perder el foco: activado por defecto; con texto mantiene
+el input y el filtro, sin texto oculta el input. Si se desactiva, al
+perder el foco se borra el filtro y se cierra el input.
+
+v0.7.20 - Buscador por contenido y cierre al perder foco
+- Conserva SearchBoxNineSliceTemplate, la lupa y la cabecera del tracker nativo.
+- Sigue la busqueda del diario del mapa: coincidencia literal, sin mayusculas,
+  en titulo, texto de la mision (descripcion/log) y objetivos actuales.
+- Solo inspecciona texto de misiones seguidas mientras hay un filtro activo;
+  cache temporal por mision, invalidada por cambios relevantes del diario.
+- Al perder el foco por clic exterior, Enter o Escape, cierra el buscador,
+  limpia el filtro y restaura todas las misiones sin alterar su seguimiento.
+- El click en la lupa no reabre la busqueda al provocar perdida de foco.
+- Sin OnUpdate, polling ni temporizadores nuevos; no cambia el registro del mapa.
+- Pruebas locales simuladas; falta comprobarlo dentro de WoW Forever.
+
+v0.7.19 - Buscador nativo en el seguimiento (panel derecho)
+- Lupa junto al boton de minimizar "Misiones". Al pulsarla aparece un campo
+  SearchBoxNineSliceTemplate dentro de esa misma cabecera, sin ocupar mas altura.
+- Filtra solamente las misiones seguidas por coincidencia parcial (include)
+  en el TITULO, sin usar patrones Lua y sin distinguir mayusculas/minusculas ASCII.
+- No cambia las misiones seguidas ni el diario. Con las secciones por zona
+  activadas, solo muestra las zonas con misiones coincidentes.
+- La X nativa limpia la busqueda; Esc o pulsar la lupa la cierran y restauran
+  la lista completa. La busqueda no se guarda entre sesiones.
+- No hay OnUpdate, sondeos, temporizadores ni recorridos del diario para buscar.
+  Sin filtro activo ni secciones, se restaura el enumerador original de Blizzard.
+- Durante el combate se deja trabajar al tracker nativo; el filtro se vuelve a
+  aplicar con PLAYER_REGEN_ENABLED. No se permite abrir el campo en combate.
+- Validacion local con simulacion. La prueba visual en Forever sigue pendiente.
+
+v0.7.14 - Plegado por zona y margenes simetricos mas amplios
+- Cabeceras de zona clicables con los iconos +/- propios de las listas de Blizzard.
+- Espacio equilibrado de 12 px antes y despues del texto; texto Game15Font_Shadow.
+- Se integran mediante los bloques del layout del tracker nativo; las misiones
+  permanecen en el seguimiento incluso cuando su zona esta plegada.
+- El plegado se guarda por personaje en TisteltiQuestHelperCharDB.trackerFoldedZones.
+- No se pliega durante combate, ni hay OnUpdate, escaneos o temporizadores.
+- No sustituye el seguimiento nativo ni crea otro modulo de misiones.
+- Pruebas locales simuladas; aun necesita validacion dentro de Forever,
+  especialmente navegacion con mando y animaciones del tracker.
+
+v0.7.12 - Margen vertical de los encabezados de zona
+- Mantiene los 24 px adicionales entre grupos, sin aumentar el alto del seguimiento.
+- Desplaza el titulo de zona 6 px hacia arriba: mas margen bajo el encabezado y menos espacio vacio antes de el.
+- Sin cambios en sangria, fuente, ordenacion, eventos ni modulos.
+
+v0.7.11 - Sangría de encabezados de zona
+- Los nombres de zona se alinean horizontalmente con el texto "Misiones"
+  del encabezado nativo del ObjectiveTracker, no con las misiones indentadas.
+- Conserva la sangría original de las misiones y sus controles de Blizzard.
+- El desplazamiento parte del ancho de sangría del módulo, sin leer
+  coordenadas de frames que Forever pueda marcar como secret.
+- Solo cambia el anclaje horizontal del texto de zona, sin hooks ni eventos.
+
+v0.7.10 - Estilo nativo de encabezados de zona
+- Mismos recursos que los encabezados del diario/mapa de Forever: fuente
+  Game15Font_Shadow (15 px) y color DISABLED_FONT_COLOR (gris de Blizzard).
+- Reserva vertical ampliada de 18 a 24 px para evitar solapamientos.
+- Ancho de texto de 230 px, una sola línea, con elipsis en zonas largas.
+- Solo cambia el aspecto de los separadores; sin eventos, timers, OnUpdate
+  ni intervenciones adicionales en el ObjectiveTracker.
+
+v0.7.9 - Separadores por zona opcionales en el seguimiento nativo de Blizzard
+
+v0.7.8 - Separación visual uniforme número / icono
+- Compensación de tamaño de fuente y atlas entre el diseño de un objetivo y el de varios.
+- «Espacio entre números e iconos» se aplica por igual a ambos diseños.
+- Conserva el tamaño, posición y distancia de los iconos a las placas.
+- Sin llamadas de medición secret ni eventos/OnUpdate adicionales.
+
+v0.7.7 - Corrección de error de valores protegidos (secret) en placas
+- No se consultan GetUnboundedStringWidth ni GetStringWidth sobre FontStrings de placas.
+- El espacio del progreso se calcula con el texto y el tamaño de fuente conocidos.
+- Mantiene anclajes, espaciado configurable, vistas previas y resto de opciones.
+- Sin eventos ni OnUpdate adicionales.
+
+v0.7.6 - Misma separación para uno o varios objetivos
+- Los números se anclan siempre al icono correspondiente, incluso cuando hay
+  varios progresos verticales junto al mismo saquito o saquito y espada.
+- El ajuste existente "Espacio entre números e iconos" (plateNumberGap) afecta
+  a todos los diseños con el mismo desplazamiento por píxel.
+- Mantiene la posición del diseño de un objetivo con su valor predeterminado.
+- No cambia la distancia a la placa ni el margen de marcas/élites.
+- Sin nuevos eventos, sondeos ni OnUpdate. Pruebas simuladas; verificar en Forever.
+
+v0.7.5 - Anclaje de marcas de banda y élites/raros
+- Corrige el anclaje con iconos de marca de banda: no depende de que
+  RaidTargetFrame:GetPoint() devuelva exactamente RIGHT.
+- Reconoce también ClassificationFrame (élites, raros y otras clasificaciones)
+  y coloca el bloque al lado izquierdo del icono nativo realmente visible.
+- Si una marca sustituye a la clasificación, usa el marco de marca; cuando
+  desaparece vuelve a la clasificación, o a la barra si no hay ninguno.
+- Mantiene la SavedVariable plateRaidTargetExtra, aplicada ahora a ambos casos;
+  cambia solo el texto de la opción para incluir marcas y élites.
+- Añade un tercer ejemplo (élite) a la vista previa de placas.
+- Reacciona a RAID_TARGET_UPDATE y UNIT_CLASSIFICATION_CHANGED únicamente cuando
+  el módulo de placas está activado; unifica los cambios concurrentes en un
+  único refresco puntual sin recorrer misiones, sondeos ni OnUpdate.
+- Pruebas con cliente simulado; pendiente de validación dentro de Forever.
+
+v0.7.4 - Vista previa de placas y margen para marcas de banda
+- La vista previa de placas utiliza las texturas/atlas y la disposición de las placas nativas
+  de Forever (barra de vida, sombreado de no seleccionado, selección, nivel y marca).
+  Los números y saquitos/espadas siguen representándose con el mismo renderer del juego.
+- Se incluyen ejemplos de placa seleccionada y placa cercana sin seleccionar con calavera.
+- Nueva opción "Margen extra con calavera o marca" (plateRaidTargetExtra, 4 px iniciales):
+  si Blizzard muestra RaidTargetFrame a la izquierda de la barra, QuestHelper coloca
+  el bloque a la izquierda de la marca, conservando la distancia base más el margen extra.
+- RAID_TARGET_UPDATE solo se escucha mientras los iconos de placas están activados.
+  Actualiza los anclajes con un único callback diferido, sin OnUpdate ni polling.
+- Solo simula la parte visual del frame nativo: no crea una NamePlate protegida,
+  no sustituye la UI ni depende de tener un NPC cercano para mostrar la vista previa.
+- Valores guardados anteriores intactos; ajustes nuevos con valores predeterminados.
+
+v0.7.3 - Separación de contador e icono con uno o varios objetivos
+- El ajuste "Espacio entre números e iconos" ahora también afecta a las
+  placas con un único objetivo; antes solo actuaba en la disposición apilada.
+- Al valor predeterminado de 5 px se conserva la posición anterior del modo
+  de objetivo único. Los incrementos o decrementos desplazan el texto en
+  ambos diseños sin variar el icono ni su distancia respecto a la placa.
+- Sin nuevos eventos, OnUpdate, temporizadores ni modificaciones de macros.
+
+v0.7.2 - Placas de proximidad y prioridad de misión en la macro
+- Corrige el salto de línea de los progresos x/x en placas NO seleccionadas,
+  asignando anchura de reserva (alineada a la derecha) y desactivando salto
+  en caracteres sin espacios si el método existe.
+- La macro prioriza nombres aprendidos de la misión superseguida en el tracker
+  y después de la misión seleccionada en el diario; el resto mantiene la
+  priorización por enemigos visibles, recientes y alternancia matar/botín.
+- La prioridad se actualiza por SUPER_TRACKING_CHANGED (y, si el cliente lo
+  expone, QUEST_LOG_SELECTION_CHANGED), sin sondeos ni OnUpdate.
+- No altera la misión seleccionada, el seguimiento, las opciones existentes,
+  las funciones de inventario ni los elementos visuales nativos.
+- Verificación de código y simulación local; pendiente de prueba en WoW Forever.
+
+TisteltiUtils QuestHelper v0.7.1 - Apariencia y vista previa
+
+INSTALACION
+- Sustituye la carpeta Interface/AddOns/TisteltiUtils_QuestHelper por la del ZIP.
+- Recarga la interfaz con /reload. La configuracion anterior se conserva.
+
+NUEVO: Opciones > Addons > TisteltiUtils - QuestHelper > Apariencia y vista previa
+(o directamente /qh apariencia)
+
+- Vista previa de placas: un objetivo de botin y un ejemplo de varios botines
+  + objetivo de matar. Utiliza el mismo renderizador que las nameplates.
+- Ajustes de placas: tamaño de icono y texto para un objetivo, tamaño compacto
+  para dos tipos, tamaño del texto de varios botines, hueco numero-icono,
+  distancia entre las dos categorias y distancia respecto a la barra de vida.
+- Vista previa de inventario/Baganator: un objeto 5/8 y otro 8/8.
+- Ajustes de inventario: tamaño del saquito, grosor del contorno oscuro
+  (0-3 px) y tamaño del contador nativo x/x de Baganator.
+- El contorno del saquito se dibuja ahora a los cuatro lados con la silueta
+  del atlas, sin un rectangulo negro opaco.
+- Controles +/- con cambio inmediato y botones de restaurar valores de fabrica
+  de cada seccion. Se guardan en TisteltiQuestHelperDB.settings sin borrar
+  las preferencias existentes.
+
+RENDIMIENTO Y COMPATIBILIDAD
+- No hay OnUpdate, sondeos, eventos nuevos ni temporizadores nuevos.
+- La vista previa solo se actualiza al abrir su panel o cambiar un ajuste.
+- Al modificar las placas, se redibuja su informacion ya obtenida, sin volver
+  a leer tooltips ni el diario de misiones.
+- Los cambios de Baganator utilizan exclusivamente RequestItemButtonsRefresh
+  cuando esa opcion esta activada. Los objetos sin mision mantienen el texto
+  nativo del stack. Baganator conserva el control de las esquinas.
+- Los estilos temporales del contador de Baganator se restauran al cambiar
+  de objeto, entregar la mision o desactivar el marcador.
+- La vista previa NO activa una funcion de inventario desactivada.
+- Seguimiento nativo, macro, avisos y resto de funcionalidades no modificados.
+
+VALIDACION
+- Sintaxis Lua verificada en los cinco modulos.
+- Pruebas simuladas: valores guardados, restablecimiento, previews, cambios
+  en los tamaños, registro de widget, 5/8 -> 8/8 -> stack nativo, sin errores.
+- No se ha probado visualmente dentro de WoW Forever: verificar posicion final,
+  escalado, Settings y apariencia concreta de Baganator en tu instalacion.
+
+------------------------------------------------------------
+
+CAMBIOS v0.6.7 (placas y Baganator):
+- Los objetivos de botin se muestran como NUMEROS APILADOS junto a UN SOLO
+  SAQUITO por placa (p. ej. 7/8 y 0/1). Los objetivos de matar conservan una
+  espada propia, abajo cuando hay botin.
+- Con un unico objetivo no cambia el estilo original de 20 px. Sin OnUpdate,
+  sondeos, nuevas lecturas de tooltip ni eventos adicionales.
+- En el inventario Baganator, la cifra x/x se mantiene al completar el objetivo
+  mientras la mision siga en el diario, y vuelve al stack solo al entregar.
+- Si Forever omite un objetivo completado en la lista, se conserva en memoria
+  la ultima referencia a ese objeto hasta que la mision abandone el diario;
+  usa el escaneo de misiones existente, sin uno adicional.
+- Todo lo demas (macro, sorter nativo, ajustes, avisos, Baganator) se mantiene.
+
+Pendiente validar la geometria visual y los eventos en cliente WoW Forever.
+
+------------------------------------------------------------
+
+CAMBIOS v0.6.6 (Baganator: contador de misión en lugar del stack):
+- El contador 5/8 sustituye al número de elementos en el mismo lugar; no hay segundo número.
+- Usa la región Count nativa del botón de Baganator. Si el botón no la expone, no interviene.
+- Al desactivar la opción, reciclar la ranura o entregar la misión, restaura el stack original.
+- Un hook seguro por botón en SetItemDetails corrige el orden de dibujado de los botones Classic.
+- Sin OnUpdate, temporizadores adicionales ni recorridos de botones de Baganator.
+- Falta validar visualmente en Forever con tu versión y skin de Baganator.
+
+CAMBIOS v0.6.5 (borde del saquito en Baganator):
+- Se retira el fondo negro solido de 17x17 px que tapaba el icono del objeto.
+- Se dibuja una sombra oscura desplazada 1 px siguiendo la transparencia
+  original del atlas del saquito: sin recuadro cuadrado.
+- Se mantienen el contador y su posicion, las opciones, la deteccion de
+  misiones, la ordenacion, el seguimiento y la macro sin cambios.
+- El widget sigue usando exactamente dos texturas (icono + sombra), sin
+  OnUpdate, polling ni eventos extra.
+- Revision estatica; pendiente validar visualmente en WoW Forever.
+
+------------------------------------------------------------
+
+TisteltiUtils QuestHelper v0.6.3 - Corrección Baganator
+
+- Cuando hay dos tipos de objetivo sobre el mismo NPC (saquito y espada),
+  se amplía el hueco entre la columna de números y la de iconos de 2 a 5 px.
+- La espada se desplaza ópticamente 4 px hacia la derecha respecto a v0.6.1,
+  por el margen transparente de su atlas. Se mantienen los números alineados
+  entre sí en una columna común y la altura/separación de las dos filas.
+- El punto de anclaje del bloque a la barra de vida sigue a -6 px.
+- Cuando hay una sola fila, se conservan íntegros su tamaño y separación.
+- Sin nuevos eventos, OnUpdate, temporizadores, hooks ni cambios funcionales.
+- Cambios limitados a constantes de layout y versión; falta validar visualmente
+  el resultado dentro del cliente WoW Forever.
+
+------------------------------------------------------------
+
+TisteltiUtils QuestHelper v0.6.1 - Alineacion de indicadores en placas + ordenacion nativa
+
+NUEVO: Opciones > Addons > TisteltiUtils - QuestHelper > Orden del seguimiento
+  - Nativo (predeterminado; sin eventos nuevos del modulo)
+  - Nivel ascendente / descendente
+  - Por zona (encabezados reales del registro de misiones)
+  - Zona y nivel ascendente / descendente
+  - Nombre alfabetico
+
+IMPLEMENTACION
+  - Solo modifica la lista de misiones seguidas del cliente. No altera el orden
+    interno del diario ni sustituye el ObjectiveTracker de Blizzard.
+  - Calcula primero el orden final y conserva la subsecuencia mas larga posible:
+    quita y vuelve a seguir solamente las misiones imprescindibles.
+  - Detecta la posicion de insercion comprobando el resultado; si falla una vez
+    prueba el extremo contrario. Si tampoco funciona, detiene la ordenacion
+    durante la sesion, evitando bucles.
+  - Revisa los cambios por eventos de misiones, con agrupacion puntual de 0.18 s.
+    No usa OnUpdate ni sondeos. No realiza cambios si ya esta ordenado.
+  - No modifica el seguimiento en combate. Conserva la seleccion y la mision
+    superseguida mediante las API C_QuestLog y C_SuperTrack.
+  - Evita conflictos: no ordena mientras el tracker propio de Questie este
+    activado ni cuando detecta QuestLevelSort, QuestTrackerEnhanced o
+    SortQuestTracker cargados.
+  - Si una mision especial carece de metadatos fiables, pospone esa ordenacion.
+  - /qh sortdebug muestra el modo y el estado de la ordenacion.
+  - Conserva las SavedVariables y las funciones anteriores. Solo se anade
+    settings.trackerSortMode = "native" dentro de TisteltiQuestHelperDB.
+
+VERIFICACION Y LIMITACIONES
+  - Sintaxis y comportamiento verificados en Lua con un cliente simulado:
+    alta/baja de misiones seguidas, cambios de modo, combate, superseguimiento,
+    ambos extremos de insercion, orden estable y ausencia de cambios redundantes.
+  - NO se ha ejecutado dentro del cliente WoW Forever. Confirmar especialmente
+    que la API refleja el orden visual de tu compilacion de WoW Forever.
+  - Blizzard puede mostrar algunas misiones especiales prioritariamente
+    (por ejemplo las de llamada), con independencia del indice de seguimiento.
+  - Al utilizar RemoveQuestWatch/AddQuestWatch puede haber algun redibujado
+    puntual del tracker; no se usan modificaciones de frames ni hooks.
+  - Al cambiar a Nativo, QuestHelper deja de intervenir; no intenta reconstruir
+    el orden antiguo de Blizzard, que no dispone de una instantanea fiable.
+
+------------------------------------------------------------
+
+v0.5.3 - Correccion de saquitos en Baganator
+
+- Se mejora el reconocimiento de objetos pendientes de mision que no coinciden por nombre: si un slot de Baganator corresponde a una bolsa real, se consulta SOLO ese slot con C_Container.GetContainerItemQuestInfo para identificar la mision nativa.
+- Los objetivos de tipo no especificado (nil) del diario se incluyen como candidatos de inventario, sin afectar las espadas ni la macro.
+- El escaneo por nombre y la asociacion nativa comparten cache hasta el siguiente evento de misiones.
+- /qh itemdebug: con el raton sobre el objeto, muestra si el widget esta registrado y activo, recuentos de coincidencias y el itemID del tooltip.
+- Si Baganator oculta el widget en sus ajustes de esquinas, debe habilitarse tambien alli.
+- Sin OnUpdate ni barridos de Baganator; solo callback por objeto y eventos de misiones. Todo sigue siendo activable en Opciones > Addons > TisteltiUtils - QuestHelper.
+- El aviso de subidas de nivel sigue apagado por defecto, respetando preferencias guardadas.
+
+IMPORTANTE: probada la logica con simulaciones; falta verificar compatibilidad con tu compilacion concreta de Baganator en WoW Forever.
+
+TisteltiUtils QuestHelper v0.5.2 — rendimiento configurable
+
+NUEVO
+- Baganator: indicador de saquito mediante su API oficial RegisterCornerWidget.
+  La compatibilidad no escanea marcos, botones o variables globales. Debes
+  habilitar "Mostrar saquitos de misión en Baganator" en Opciones > Addons.
+  Baganator puede gestionar la esquina del indicador en sus propias opciones.
+- Tooltip de objetos: muestra nombre de la misión y progreso de objetivos
+  pendientes, al solicitarse el tooltip; desactivado por defecto.
+- Bolsas de Blizzard: integración independiente y opcional, sin escaneos
+  periódicos. No es necesaria para usuarios de Baganator.
+- Se pueden desactivar individualmente: iconos en placas, macro automática,
+  marcadores de Baganator, marcadores de bolsas oficiales y tooltips.
+- Anunciar subidas de nivel está DESACTIVADO por defecto para configuraciones
+  nuevas. Si tenías guardado true de v0.5.1, se RESPETA; desactívalo manualmente.
+
+RESTRICCIONES
+- Sin OnUpdate permanente ni temporizadores periódicos para inventario.
+- Asociación conservadora por nombre del objetivo del diario (con variantes
+  limitadas de plural). No hay base de datos de botín: algunos objetivos con
+  distinto nombre entre objeto y misión no se pueden identificar.
+- Comprobar visualmente en WoW Forever la versión de Baganator instalada.
+
+TisteltiUtils - QuestHelper v0.5.1 (World of Warcraft Forever)
+
+CAMBIOS v0.5.1 - CONTADORES EN DOS FILAS
+- Cuando un NPC tiene objetivos de botin y de matar, muestra el saquito
+  ARRIBA y la espada DEBAJO. Ambos iconos se alinean junto a la barra de vida, usando la misma columna de numeros y de iconos.
+- Dos filas compactas: iconos de 16 px, numeros de 13 px y sin separacion adicional entre filas.
+  El conjunto queda centrado verticalmente y separado 6 px de la barra.
+- Si solo hay un tipo de objetivo, mantiene una sola fila centrada con el
+  icono original de 20 px y el tipo de letra habitual.
+- No hay OnUpdate, eventos nuevos, ni cambios en la macro o los avisos.
+- Conserva la separacion optica individual entre espada y saquito.
+- El resultado visual debe validarse dentro del cliente de WoW Forever.
+
+------------------------------------------------------------
+
+TisteltiUtils - QuestHelper v0.5.0 (World of Warcraft Forever)
+
+CAMBIOS v0.5.0 - AVISOS EN GRUPO
+- Nueva pagina nativa: Opciones > Addons > TisteltiUtils - QuestHelper.
+- /qh options (o /qh config) abre directamente dicha pagina fuera de combate.
+- Avisos en PARTY al completar un objetivo, como Quest Together / Questie:
+    {rt1} 8/8 Lobos abatidos para [La caceria]!
+- Aviso opcional al quedar la mision lista para entregar:
+    {rt1} Mision completada: [La caceria]!
+  Si se envio el objetivo final en esa actualizacion, no repite el aviso.
+- Aviso opcional al subir de nivel con el numero de misiones entregadas
+  en el nivel anterior (persistido por personaje), como Quest Together.
+- Opciones independientes, todas activadas por defecto:
+    Anunciar objetivos completados / Anunciar misiones completadas /
+    Anunciar subidas de nivel.
+- Nunca envia avisos en solitario ni en banda. No anuncia objetivos que ya
+  estaban terminados cuando se vio la mision por primera vez, no repite
+  objetivos completados y se protege ante cambios de zona / datos parciales.
+- Mensajes limitados a 255 bytes y enviados con separacion en cola, evitando
+  spam y reintentando tras bloqueo temporal del chat.
+- /qh chatdebug muestra cuantos avisos ha generado y el recuento de nivel.
+- No incluye el auto-compartir ni el panel de Quest Together: las opciones
+  nuevas son solo las relacionadas con los avisos.
+- Mantiene exactamente el espaciado de espada/saquito y la macro de v0.4.6.
+
+INSTALACION
+1. Cierra el juego y sustituye la carpeta TisteltiUtils_QuestHelper por
+   la de este ZIP. No instales simultaneamente QuestTargetLite.
+2. Arranca el juego y abre Opciones > Addons > TisteltiUtils - QuestHelper.
+3. Activa/desactiva los 3 tipos de avisos segun prefieras.
+4. Si usas QuestTogether o Questie, desactiva sus avisos de objetivos
+   para que el grupo no vea mensajes duplicados.
+
+NOTAS
+- El aviso "mision completada" significa LISTA PARA ENTREGAR, no que hayas
+  hablado con el NPC y cobrado la recompensa.
+- El primer nivel tras instalar el addon puede no tener un recuento completo
+  si ya habias conseguido experiencia antes de instalarlo; no se anuncia un
+  recuento incompleto. A partir del siguiente nivel se cuenta completo.
+- No incluye notificaciones del grupo de otros jugadores: solo las tuyas.
+- Implementacion basada en el comportamiento de Quest Together, MIT (Tim);
+  aviso de licencia en LICENSE-QuestTogether.txt.
+- Codigo verificado con pruebas simuladas de eventos. Es necesario comprobar
+  la integracion visual y el envio real de chat dentro de Forever.
+
+------------------------------------------------------------
+VERSION ANTERIOR / DOCUMENTACION DE LA MACRO
+
+TisteltiUtils - QuestHelper v0.4.6 (World of Warcraft Forever)
+
+CAMBIOS v0.4.6
+- La macro incluye NPC de objetivos de matar (espada) Y de botin (saquito).
+- Intercala ambos tipos de NPC para que uno no monopolice los 255 caracteres.
+- Da prioridad a NPC vivos con placa visible y actualiza la macro al cambiar
+  los NPC de mision cercanos, aunque ya se conocieran de sesiones previas.
+- Al entrar en combate, difiere la reescritura hasta salir de combate.
+- /qh debug indica cuantos NPC de cada tipo entran en la macro.
+- Conserva nombre QuestHelper, colocacion de la macro y espaciado de iconos.
+
+CAMBIOS v0.4.5
+- Espada: 3 px mas de separacion respecto al contador; bolsa: sin cambios.
+- Nuevo nombre de addon: TisteltiUtils_QuestHelper.
+- Macro personal: se pasa a llamar QuestHelper; si existia QuestTargetLite,
+  se renombra EDITANDO LA MISMA macro para conservar su hueco en la barra.
+- Nuevo comando /qh; /qtl sigue funcionando como alias.
+
+FUNCIONES
+- Espada/bolsa y contador conseguido/total en las nameplates.
+- Actualizacion automatica de la macro PERSONAL QuestHelper.
+- La macro descarta objetivos muertos al final de cada pulsacion e intenta
+  otros nombres si el primero es un cadaver. No puede distinguir entre dos
+  NPC vivos/muertos que comparten exactamente el mismo nombre al usar /targetexact.
+- Deteccion con las APIs nativas de misiones y tooltips; sin listas fijas.
+- Anclaje centrado respecto a la barra de vida, con 7 px de separacion lateral.
+
+COMANDOS
+/qh update : revisar objetivos y actualizar la macro
+/qh debug  : mostrar diagnostico
+/qh reset  : borrar NPC aprendidos y volver a detectar
+
+ACTUALIZACION DESDE VERSIONES ANTERIORES
+1. CIERRA el juego y elimina la carpeta Interface/AddOns/TisteltiUtils_QuestTargetLite
+   (o ForeverQuestTargetLite si aun la tienes).
+2. Copia TisteltiUtils_QuestHelper a Interface/AddOns.
+3. Inicia el juego. Si vienes de v0.4.5, la macro QuestHelper seguira
+   en su misma ranura. Desde versiones anteriores, la antigua QuestTargetLite
+   deberia renombrarse a QuestHelper sin perder su posicion en la barra.
+4. La informacion guardada sobre NPC aprendidos no se transfiere
+   automaticamente por el cambio de nombre de carpeta. Se reaprendera al
+   ver las placas de los NPC. Para conservarla, ANTES de entrar al juego,
+   renombra el archivo de variables guardadas de personaje:
+   WTF/Account/<cuenta>/<reino>/<personaje>/SavedVariables/
+   TisteltiUtils_QuestTargetLite.lua -> TisteltiUtils_QuestHelper.lua
+   Si venias de ForeverQuestTargetLite, usa su nombre como origen.
+   El identificador de la variable FQTL4_Seen no cambia por compatibilidad.
+
+No instales el addon antiguo junto con QuestHelper ni Simple Objective Icons si
+no quieres iconos duplicados.
+Las macros no pueden editarse en combate y estan limitadas a 255 caracteres.
+No marca todavia objetos de la mochila ni de la ventana de botin.
+
+LIMITACION DE LAS MACROS DE WOW
+El cliente limita las macros a 255 caracteres. Si hay demasiados nombres de
+NPC de mision, no caben todos a la vez; se alternan los de espada y saquito,
+y se favorecen los visibles. Se actualizaran al acercarte fuera de combate.
+Las macros no pueden seleccionar NPC exclusivamente por icono de mision ni
+reescribirse mientras estas en combate. Para ver cuantos entran, /qh debug.
+No probado dentro del cliente real tras este cambio.
+
+
+CAMBIOS v0.6.3 (Baganator):
+- Corrección de la opción de posición de Baganator: default_position -> corner.
+  El widget anterior podía registrarse sin quedar asignado a ninguna esquina.
+- Preferencia visual de la esquina superior izquierda (prioridad 1) para los
+  saquitos de objetivos pendientes. Baganator permite cambiarlo en sus opciones.
+- Una solicitud puntual de actualización de los botones al registrar el widget.
+- Sin cambios en detección, tooltips, macro, ordenación o contadores de placas.
+- Si el saquito no aparece, ejecutar /qh itemdebug: widget visible=true indica
+  que Baganator tiene activado el indicador. Si es false, configurar el widget
+  en los ajustes de esquinas de Baganator.
+
+CAMBIOS v0.6.4 (Baganator: objetivos completados y legibilidad):
+- Los objetos siguen marcados al alcanzar el progreso completo (6/6),
+  mientras su misión continúe en el registro, y desaparecen al entregarla.
+- El índice de objetivos completados solo se usa para inventario/tooltips;
+  no modifica espadas, saquitos de NPC ni macro automática.
+- Los marcadores de Baganator muestran progreso en pequeño (2/8, 6/6).
+- Icono de bolsa con fondo y contorno oscuro de 1 px para mejorar contraste.
+- Usa el registro de misiones ya recorrido y la API de Baganator; sin
+  eventos nuevos, barridos periódicos ni actualizaciones por fotograma.
+- Los indicadores se siguen pudiendo desactivar desde Opciones > Addons.
+- Pruebas sintácticas y simuladas; no validado dentro de WoW Forever.
+
+
+v0.7.1 - Ajuste de contadores en placas lejanas:
+- Evita que el progreso (p. ej. 5/15) se divida en dos lineas al cambiar de escala de nameplate.
+- Añade margen de seguridad al ancho de las cifras y limita el FontString a una sola linea.
+- Sin eventos, timers ni escaneos adicionales; se conservan las vistas previas y el resto de funciones.
+
+
+QuestHelper v0.7.9 - Secciones por zona opcionales
+- Opciones > Addons > TisteltiUtils - QuestHelper > Seguimiento nativo: "Separadores por zona" (desactivado de inicio).
+- Los nombres proceden de los encabezados del registro nativo, no de la ubicacion del personaje.
+- Si se habilita, la ordenacion agrupa por zona antes del criterio seleccionado. En modo Nativo, agrupa por zona conservando el orden previo dentro de cada zona.
+- No sustituye el ObjectiveTracker ni crea bloques de mision: reserva 18 px antes del primer bloque de cada zona durante el layout nativo y dibuja solo texto.
+- Sin OnUpdate ni temporizadores; eventos del registro solo invalidan una cache. Se inhibe en combate y no interviene cuando la opcion esta apagada.
+- Compatible solo con el tracker nativo; evita trackers alternativos activos. Aun requiere validacion visual dentro de WoW Forever.
+
+
+v0.7.14 - Separadores equidistantes:
+- Espacio vertical TOTAL sin cambios: 34 px entre misiones de distinta zona.
+- Encabezado de 18 px, con 8 px antes y 8 px despues.
+- Sin cambios en alineacion horizontal, fuente, color ni otras funciones.
+
+
+v0.7.14: separadores de 18 px con margen simetrico de 12 px antes y despues. Cabeceras de zona clicables para plegar/desplegar solo en el ObjectiveTracker. Las preferencias se guardan por personaje en TisteltiQuestHelperCharDB.trackerFoldedZones. Sin escaneos continuos, sin quitar misiones seguidas; desactivado por defecto.
+
+0.7.18: Clic derecho en una mision del seguimiento nativo: Compartir progreso en grupo. Envia un resumen puntual de objetivos pendientes (sin mensajes automaticos).
+
+
+0.7.47 - BASE RECUPERADA 0.7.41
+- Se restaura sin cambios el diseño y algoritmo de zonas/orden de la 0.7.41.
+- Se recuperan solo el repintado de misiones nuevas/actualizadas tras EndLayout y la inicialización tardía del botón ? de entregables.
+- No se copian cambios de distribución/altura/recorte de las 0.7.42-0.7.46.
+- La prueba en el cliente WoW Forever sigue siendo necesaria.
+
+0.7.48 — Recuperacion conservadora de visibilidad.
+- Restaurado el reflow solo de bloques que el cliente ha renderizado.
+- Se evita reservar huecos para misiones descartadas y el recorte por ContentsFrame.
+- Conserva plegado, filtros y resaltados (sin paneles). Encabezados grises con fuente Game15Font_Shadow original.
+- La antigua paginacion por rueda sigue deshabilitada, porque interceptaba EnumQuestWatchData y producia riesgo de taint.

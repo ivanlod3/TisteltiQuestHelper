@@ -1,0 +1,15 @@
+QuestHelper 0.7.49 — Recuperacion del seguimiento con zonas, geometria y desplazamiento (candidato)
+- Base: 0.7.48. No se sustituye QuestObjectiveTracker.EnumQuestWatchData.
+- Correccion del ancho/alto: cada bloque nativo mantiene dimensiones medidas antes de recolocarlo, usando dos anclajes.
+- Recuperada la rueda de desplazamiento: paginacion discreta basada en las filas del rastreador, con el limite de altura del cliente.
+- Cuando Blizzard no crea bloques por falta de espacio, crea solo filas de reserva para esas misiones, reutilizando, si existen, las fuentes de los bloques nativos. No sustituye el rastreador entero ni cambia la lista de misiones seguidas.
+- Zonas agrupadas, plegado por personaje, ordenacion por nivel, busqueda y filtro reversible conservados.
+- Los encabezados usan el objeto tipografico y color del titulo nativo "Misiones" y las flechas TGA existentes.
+- Resaltados de filas repintados al terminar el reflow; las filas de reserva tambien admiten resaltado.
+- No llama MarkDirty, Update, UpdateAll, LayoutContents ni UpdateHeight desde los handlers del addon. No cambia availableHeight ni contentsHeight.
+- Se suspende el layout propio en combate/auras secretas; se usan hooksecurefunc de observacion y API publicas.
+- Pruebas automatizadas: sintaxis Lua de 9 modulos; harness mock tests/test_tracker.lua sobre 9 misiones (incluida una prueba con 4 bloques nativos ausentes).
+- PENDIENTE: probar en el cliente real la compatibilidad con las acciones nativas de las filas de reserva, texto largo, su posicion exacta, el flujo de Edit Mode/Social, el nivel de personaje y el taint.
+- Si el cliente no permite adjuntar la rueda a un frame no protegido, la paginacion no se activara; no fuerza mecanismos protegidos.
+- No borra SavedVariables; se conservan todas las opciones y el filtro de entregables de la 0.7.48.
+

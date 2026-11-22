@@ -1,0 +1,25 @@
+name: Validate addon
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lua:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        lua: ['5.1', '5.4']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua${{ matrix.lua }}
+      - name: Regression tests
+        run: python3 scripts/test.py --lua lua${{ matrix.lua }}
+      - name: Verify release package
+        run: python3 scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-lua-${{ matrix.lua }}
+          path: dist/*

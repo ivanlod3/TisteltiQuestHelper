@@ -1,0 +1,22 @@
+## Interface: 16001
+## Title: TisteltiUtils - QuestHelper
+## Notes-esES: Objetivos, macro de mision, avisos y objetos de mision opcionales para Baganator.
+## Notes: Native quest tracker enhancements, objective icons, targeting macro and optional quest item markers.
+## Author: ivanlod3 (TisteltiUtils)
+## X-Website: https://github.com/ivanlod3/TisteltiQuestHelper
+## X-License: MIT
+## Version: 0.7.52
+## SavedVariables: TisteltiQuestHelperDB
+## SavedVariablesPerCharacter: FQTL4_Seen, TisteltiQuestHelperCharDB
+TisteltiUtils_QuestHelper.lua
+QuestHelper_Announcements.lua
+QuestHelper_Items.lua
+QuestHelper_Status.lua
+QuestHelper_Diagnostics.lua
+QuestHelper_TrackerSort.lua
+QuestHelper_NativeCapacity.lua
+QuestHelper_TrackerZones.lua
+QuestHelper_ProgressShare.lua
+QuestHelper_Recent.lua
+QuestHelper_TurnInFilter.lua
+QuestHelper_Options.lua

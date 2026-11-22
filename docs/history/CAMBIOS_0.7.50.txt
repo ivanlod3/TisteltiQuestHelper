@@ -1,0 +1,11 @@
+QuestHelper 0.7.50 — Iconos y sangría de misiones al cambiar el seguimiento
+
+Base 0.7.49, sin reescribir arquitectura.
+- Corregido el icono '?' incorrecto en misiones que conservan objetivos sin completar: el POIButtonTemplate establece explícitamente QuestInProgress/QuestComplete antes de actualizar su estilo.
+- La condición de misión entregable no puede ser cierta mientras las API de objetivos indiquen trabajo pendiente; no basta la marca genérica IsComplete del diario.
+- Corregida sangría de filas de reserva: se leen GetLeft()/GetRight() del HeaderText nativo, se reproducen los márgenes en título y objetivos, se ajusta la posición del icono; la referencia se conserva ante reciclados.
+- Evitada la combinación incompatible de SetWidth sobre una FontString con anclajes a ambos lados.
+- Sin cambios de SavedVariables, filtro de entregables, zonas, ordenación, búsqueda, anuncios, placas o inventario.
+- Prueba automatizada: tests/test_v50_overflow.lua (Lua 5.3, 0/1, estilo POI, cambios de estado, posición y compatibilidad sin SetStyle). Esta prueba FALLA contra 0.7.49 y PASA contra 0.7.50.
+- Compilación de todos los Lua del .toc y CRC del paquete correctos.
+- Pendiente: verificar la apariencia exacta y la ausencia de taint dentro de WoW Forever 1.60.1. Fuentes nativas solo se pueden muestrear cuando el cliente ya ha dibujado algún bloque; si aún no hay muestra se usa la última sangría observada (o un valor inicial aproximado).
