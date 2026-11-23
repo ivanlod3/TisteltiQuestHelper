@@ -6,6 +6,15 @@ ns.Diagnostics = D
 local active, busy, serial, generation = false, false, 0, 0
 local samples, identities, native, hooked = {}, {}, {}, {}
 local pending, dropped, failure = false, 0, nil
+local recentEvents, MAX_RECENT = {}, 60
+function D.RecordRecent(id, kind, reason, before, after)
+    if not active then return end
+    local record = "RECENT\tquest=" .. tostring(id) .. "\tkind=" .. tostring(kind)
+        .. "\treason=" .. tostring(reason) .. "\tbefore=" .. tostring(before)
+        .. "\tafter=" .. tostring(after)
+    if #recentEvents >= MAX_RECENT then table.remove(recentEvents,1) end
+    recentEvents[#recentEvents+1] = record
+end
 local MAX_SAMPLES = 100
 local events = CreateFrame("Frame")
 local function readable(v) return not issecretvalue or not issecretvalue(v) end
@@ -66,13 +75,16 @@ local function blockInfo(frame)
         "nativeRect=" .. text(ref and ref.rect), "nativeAnchors=" .. text(ref and ref.anchors),
         "nativeTitle=" .. text(ref and ref.title)}, "\t")
 end
-local function appendRegion(out, name, frame)
-    if frame then out[#out + 1] = name .. "\t" .. identify(frame) .. "\t" .. rect(frame) .. "\t" .. anchors(frame) end
+local function appendRegion(out, name, frame, owner)
+    if frame then out[#out + 1] = name .. "\t" .. identify(frame)
+        .. "\tparent=" .. identify(safe(field(frame,"GetParent"),frame))
+        .. "\towner=" .. text(owner) .. "\t" .. rect(frame)
+        .. "\t" .. anchors(frame) end
 end
 local function detail(out, frame)
     appendRegion(out, "title", field(frame, "HeaderText"))
     appendRegion(out, "poi", field(frame, "poiButton") or field(frame, "POIButton"))
-    appendRegion(out, "item", field(frame, "ItemButton"))
+    appendRegion(out, "ItemButton", field(frame, "ItemButton") or field(frame,"itemButton"), field(frame,"id"))
     local lines = field(frame, "usedLines")
     if type(lines) == "table" then
         local count = 0
@@ -150,6 +162,7 @@ local function snapshot(label)
         out[#out + 1] = "ORDER\t" .. i .. "\t" .. text(row.id) .. "\ty=" .. text(row.y) .. "\tw=" .. text(row.width) .. "\th=" .. text(row.height)
     end
     out[#out + 1] = "COUNTS\twatches=" .. count .. "\tnative=" .. used .. "\tauxShown=" .. auxShown
+    for _, event in ipairs(recentEvents) do out[#out+1] = event end
     return table.concat(out, "\n")
 end
 function D.Capture(label)
@@ -247,6 +260,8 @@ local function compactSummary()
                 unique(line)
             elseif line:match("^SECURITY\t") and not line:match("\ttrue\t") then
                 unique(line)
+            elseif line:match("^RECENT\t") then unique(line)
+            elseif line:match("^ItemButton\t") then unique(line)
             elseif line:match("^SKIP\t") then unique(line) end
         end
         unique("WATCH_ORDER\t" .. table.concat(watches, ","))
@@ -318,6 +333,7 @@ SlashCmdList.TQHDIAG = function(message)
     local cmd, label = (message or ""):match("^(%S*)%s*(.-)%s*$")
     if cmd == "start" then
         samples, native, identities, serial, generation, dropped, failure = {}, {}, {}, 0, 0, 0, nil
+        recentEvents = {}
         active = true; installHooks(); D.Capture("start")
         print("QuestHelper: observador iniciado; /tqhdiag mark etiqueta, stop, export. Exporta antes de recargar.")
     elseif cmd == "mark" then D.Capture("mark:" .. label)
