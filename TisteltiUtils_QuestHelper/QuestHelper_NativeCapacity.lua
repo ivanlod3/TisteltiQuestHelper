@@ -174,7 +174,7 @@ function Capacity.Initialize(target, refresh)
                 end
                 local security=type(issecurevariable)~="function" and "no disponible" or
                     (#insecure==0 and "campos comprobados seguros" or "taint: "..table.concat(insecure,","))
-                print("|cff73c9ffQuestHelper 0.7.52:|r nativas "..state.native.."/"..state.watches..
+                print("|cff73c9ffQuestHelper 0.7.53:|r nativas "..state.native.."/"..state.watches..
                     "; auxiliares 0; "..security..".")
             end)
         end
