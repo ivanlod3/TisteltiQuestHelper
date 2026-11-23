@@ -27,6 +27,7 @@ def main():
         ('test_v51_sort.lua', [ADDON/'QuestHelper_TrackerSort.lua']),
         ('test_v51_filter_swap.lua', [ADDON/'QuestHelper_Status.lua', ADDON/'QuestHelper_TurnInFilter.lua']),
         ('test_native_geometry.lua', [ADDON]),
+        ('test_recent_progress.lua', [ADDON]),
     ]
     if args.native_reference:
         for filename in ('MixinUtil.lua','Blizzard_ObjectiveTrackerModule.lua','Blizzard_QuestObjectiveTracker.lua','Blizzard_ObjectiveTrackerContainer.lua'):
