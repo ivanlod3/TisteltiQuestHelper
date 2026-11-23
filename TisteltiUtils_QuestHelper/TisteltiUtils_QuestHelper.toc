@@ -5,7 +5,7 @@
 ## Author: ivanlod3 (TisteltiUtils)
 ## X-Website: https://github.com/ivanlod3/TisteltiQuestHelper
 ## X-License: MIT
-## Version: 0.7.52
+## Version: 0.7.53
 ## SavedVariables: TisteltiQuestHelperDB
 ## SavedVariablesPerCharacter: FQTL4_Seen, TisteltiQuestHelperCharDB
 TisteltiUtils_QuestHelper.lua
