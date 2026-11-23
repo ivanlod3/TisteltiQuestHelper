@@ -300,7 +300,7 @@ local function export(raw, compact)
     end
     local version, build = "?", "?"
     if GetBuildInfo then version, build = GetBuildInfo() end
-    local header = "TQHDIAG/1 addon=0.7.52 client=" .. text(version) .. " build=" .. text(build)
+    local header = "TQHDIAG/1 addon=0.7.53 client=" .. text(version) .. " build=" .. text(build)
         .. " snapshots=" .. #samples .. " dropped=" .. dropped .. " error=" .. text(failure)
         .. "\nrect=left,top,width,height,effectiveScale,shown,visible; anchors=point,relativeFrame,relativePoint,x,y\n"
     local body = header .. (compact and compactSummary() or table.concat(samples,"\n\n"))
