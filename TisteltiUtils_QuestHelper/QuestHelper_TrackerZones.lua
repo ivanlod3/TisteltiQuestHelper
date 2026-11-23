@@ -161,10 +161,15 @@ local function syncQuestItem(block, before)
     if math.abs(ix-before.left)>1 or math.abs(iy-before.top)>1 then return end
     if #before.anchors ~= 1 then return end
     local a=before.anchors[1]
-    if a[2] ~= block and a[2] ~= block.ContentsFrame then return end
-    -- Only repair the owner-relative anchor. Never write unrelated UI frames.
-    item:ClearAllPoints()
-    item:SetPoint(a[1],a[2],a[3],a[4],a[5])
+    local content = safe(block.GetParent,block)
+    if a[2] ~= block and a[2] ~= content then return end
+    -- A button with a single anchor to its owner is expected to follow it.
+    -- For an independently anchored button on the same content layer, apply
+    -- the observed displacement. Reject ambiguous multi-anchor geometry.
+    local x, y = a[4], a[5]
+    if a[2] == content then x, y = x + dx, y + dy end
+    local ok = pcall(item.ClearAllPoints,item)
+    if ok then pcall(item.SetPoint,item,a[1],a[2],a[3],x,y) end
 end
 local function samePosition(a, b)
     if not a or not b or #a ~= #b then return false end
