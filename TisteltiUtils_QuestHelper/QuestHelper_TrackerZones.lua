@@ -21,7 +21,6 @@ local warnedIncomplete = false
 local addonPlacement = setmetatable({}, {__mode="k"})
 -- Native quest item buttons may be parented elsewhere and stay at the old
 -- coordinates when their owning block is visually reordered.
-local itemPositions = setmetatable({}, {__mode="k"})
 local function questItem(block)
     local b = block and (block.ItemButton or block.itemButton)
     if b and type(b.GetParent) == "function" and type(b.GetNumPoints) == "function"
@@ -137,7 +136,7 @@ end
 local function itemSnapshot(block)
     local item = questItem(block)
     if not item or (type(item.IsProtected) == "function"
-        and safe(item.IsProtected,item) == true) then return end
+        and safe(item.IsProtected,item) ~= false) then return end
     local anchors = readPosition(item)
     if not anchors then return end
     return {button=item, questID=block.id, parent=safe(item.GetParent,item), anchors=anchors,
