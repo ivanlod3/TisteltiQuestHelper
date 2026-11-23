@@ -32,6 +32,7 @@ local function node(kind,parent)
  function n:GetFont()return 'Fonts/FRIZQT__.TTF',12,''end
  function n:GetFontObject()return {}end
  function n:IsProtected()return self.protected or false end
+ function n:GetParent()return self.parent end
  function n:SetText(t)self.text=t;if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self)end end
  function n:GetText()return self.text or ''end
  function n:GetStringHeight()return 12 end
@@ -100,6 +101,10 @@ for _,id in ipairs(ids)do
  blocks[id]=b
 end
 resetNative()
+-- Independently anchored native item button should follow the owning quest.
+local item=node('item',content)
+item:SetPoint('TOPLEFT',content,'TOPLEFT',20,-10)
+blocks[101].ItemButton=item
 function tracker:GetExistingBlock(id)return blocks[id]end
 function tracker:EndLayout()end
 function tracker:MarkDirty()nativeCalls=nativeCalls+1 end
@@ -130,6 +135,8 @@ local function checkGeometry()
  end
 end
 checkGeometry()
+assert(math.abs(item:GetTop()-blocks[101]:GetTop())<1,
+ 'item independently anchored to contents did not follow its native quest')
 local state=ns.TrackerZones.GetDiagnosticState()
 assert(state.native==6 and #state.auxiliary==0)
 assert(state.geometry[1].y==37,'margen inicial nativo de 10 no conservado')
