@@ -19,6 +19,15 @@ local warnedIncomplete = false
 -- coordenadas impuestas en el render anterior. Evita guardar nuestro propio
 -- layout como plantilla para la siguiente actualización.
 local addonPlacement = setmetatable({}, {__mode="k"})
+-- Native quest item buttons may be parented elsewhere and stay at the old
+-- coordinates when their owning block is visually reordered.
+local itemPositions = setmetatable({}, {__mode="k"})
+local function questItem(block)
+    local b = block and (block.ItemButton or block.itemButton)
+    if b and type(b.GetParent) == "function" and type(b.GetNumPoints) == "function"
+        and type(b.SetPoint) == "function" then return b end
+end
+
 local searchButton, searchBox, searchVisible
 local searchAnchor
 local searchQuery, searchCorpus = "", {}
@@ -125,6 +134,38 @@ local function readPosition(block)
     end
     return anchors
 end
+local function itemSnapshot(block)
+    local item = questItem(block)
+    if not item or (type(item.IsProtected) == "function"
+        and safe(item.IsProtected,item) == true) then return end
+    local anchors = readPosition(item)
+    if not anchors then return end
+    return {button=item, questID=block.id, parent=safe(item.GetParent,item), anchors=anchors,
+        left=safe(item.GetLeft,item), top=safe(item.GetTop,item),
+        blockLeft=safe(block.GetLeft,block),blockTop=safe(block.GetTop,block)}
+end
+local function syncQuestItem(block, before)
+    if not before or before.questID ~= block.id or before.button ~= questItem(block) then return end
+    local item = before.button
+    if not canMove(item) or not before.blockLeft or not before.blockTop then return end
+    local bx,by=safe(block.GetLeft,block),safe(block.GetTop,block)
+    local ix,iy=safe(item.GetLeft,item),safe(item.GetTop,item)
+    if type(bx)~="number" or type(by)~="number"
+        or type(ix)~="number" or type(iy)~="number"
+        or type(before.left)~="number" or type(before.top)~="number" then return end
+    local dx,dy=bx-before.blockLeft,by-before.blockTop
+    if math.abs(dx)<0.5 and math.abs(dy)<0.5 then return end
+    -- An item anchored to the block follows automatically; an item which
+    -- hasn't followed is adjusted only when a simple owned anchor is available.
+    if math.abs(ix-before.left-dx)<1 and math.abs(iy-before.top-dy)<1 then return end
+    if math.abs(ix-before.left)>1 or math.abs(iy-before.top)>1 then return end
+    if #before.anchors ~= 1 then return end
+    local a=before.anchors[1]
+    if a[2] ~= block and a[2] ~= block.ContentsFrame then return end
+    -- Only repair the owner-relative anchor. Never write unrelated UI frames.
+    item:ClearAllPoints()
+    item:SetPoint(a[1],a[2],a[3],a[4],a[5])
+end
 local function samePosition(a, b)
     if not a or not b or #a ~= #b then return false end
     for i, p in ipairs(a) do
@@ -168,6 +209,7 @@ local function restorePosition(block)
         positions[block], addonPlacement[block], hiddenByUs[block] = nil, nil, nil
         return
     end
+    local itemBefore = itemSnapshot(block)
     if anchors then
         block:ClearAllPoints()
         for _, a in ipairs(anchors) do
@@ -179,6 +221,7 @@ local function restorePosition(block)
         hiddenByUs[block] = nil
     end
     addonPlacement[block] = nil
+    syncQuestItem(block,itemBefore)
 end
 local function hideHeadings()
     for _, head in ipairs(headings) do head.frame:Hide() end
@@ -520,6 +563,7 @@ local function render(tracker, fromNative)
             -- Solo la referencia vertical del bloque. Regiones, anchuras,
             -- alturas, callbacks e iconos siguen siendo los de Blizzard.
             local anchors = positions[b]
+            local itemBefore = itemSnapshot(b)
             b:ClearAllPoints()
             for j, a in ipairs(anchors) do
                 if j == rect.top then
@@ -529,6 +573,7 @@ local function render(tracker, fromNative)
             local placed = readPosition(b)
             if placed then placed.id = b.id end
             addonPlacement[b] = placed
+            syncQuestItem(b,itemBefore)
             if safe(b.IsShown, b) ~= true then b:Show() end
             hiddenByUs[b] = nil
             visible[b] = true
@@ -700,7 +745,18 @@ local function configureWheel()
     end
     if type(target.GetScript)~="function" or type(target.HookScript)~="function" then return end
     -- Respeto al scroll que ya tenga el cliente u otro addon.
-    if safe(target.GetScript,target,"OnMouseWheel") then return end
+    -- HookScript preserves any existing handler. A handler already attached to
+    -- the same target may also scroll; avoid double movement by using our own
+    -- listener only on a separate, unclaimed ContentsFrame when possible.
+    if safe(target.GetScript,target,"OnMouseWheel") then
+        local content=tracker.ContentsFrame
+        if content and content ~= target and canMove(content)
+            and type(content.HookScript)=="function"
+            and type(content.EnableMouseWheel)=="function"
+            and not safe(content.GetScript,content,"OnMouseWheel") then
+            target=content
+        else return end
+    end
     oldWheelEnabled = type(target.IsMouseWheelEnabled)=="function"
         and safe(target.IsMouseWheelEnabled,target)==true or false
     local ok = pcall(target.HookScript,target,"OnMouseWheel",function(self,delta)
