@@ -26,18 +26,18 @@ jobs:
       - name: Build verified installable addon ZIP
         run: |
           python3 scripts/package.py
-          cp dist/TisteltiQuestHelper-0.7.53.zip dist/TisteltiQuestHelper-0.7.53-beta.2.zip
+          cp dist/TisteltiQuestHelper-0.7.53.zip dist/TisteltiQuestHelper-0.7.53-beta.3.zip
       - name: Publish pre-release from this branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=v0.7.53-beta.2
+          TAG=v0.7.53-beta.3
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Pre-release $TAG already exists; refusing to overwrite it."
             exit 0
           fi
-          gh release create "$TAG" dist/TisteltiQuestHelper-0.7.53-beta.2.zip \
+          gh release create "$TAG" dist/TisteltiQuestHelper-0.7.53-beta.3.zip \
             --target "$GITHUB_SHA" \
-            --title "TisteltiQuestHelper 0.7.53 beta 2" \
+            --title "TisteltiQuestHelper 0.7.53 beta 3" \
             --prerelease \
-            --notes "Versión experimental de WoW Forever / OctoWoW 1.60.1. Corrige detección de avances falsos, protección de bloques reciclados, anclajes conservadores de botones de objetos, diagnóstico bajo demanda y compatibilidad de scroll. Incluye la macro personal TQH_Manual con objetivos manuales FIFO y menú contextual de NPC. Pruebas Lua 5.1/5.4 y paquete verificadas automáticamente. Pendiente de validación dentro del juego. No se ha fusionado en main. Descargar el ZIP adjunto (no Source code)."
+            --notes "Versión experimental de WoW Forever / OctoWoW 1.60.1. Corrige detección de avances falsos, protección de bloques reciclados, anclajes conservadores de botones de objetos, diagnóstico bajo demanda y compatibilidad de scroll. Incluye la macro personal TQH_Manual con objetivos manuales FIFO y menú contextual de NPC. Iconos diferenciados: mapa para QuestHelper y marca del cazador para TQH_Manual. Pruebas Lua 5.1/5.4 y paquete verificadas automáticamente. Pendiente de validación dentro del juego. No se ha fusionado en main. Descargar el ZIP adjunto (no Source code)."
