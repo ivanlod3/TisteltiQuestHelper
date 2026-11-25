@@ -152,7 +152,9 @@ for _,id in ipairs(ids)do assert(observed[id],'mision nativa inaccesible por scr
 for step=1,10 do tracker.scripts.OnMouseWheel(tracker,1)end
 assert(ns.TrackerZones.GetDiagnosticState().index==1)
 -- Repetir EndLayout sin un nuevo AnchorBlock no debe contaminar el respaldo.
+local stableWrites=blocks[101].writes
 for i=1,200 do tracker:EndLayout()end
+assert(blocks[101].writes==stableWrites,'layout estable vuelve a escribir anclajes')
 checkGeometry();assert(positions[blocks[102]][1][2]==blocks[101])
 assert(positions[blocks[101]][1][5]==-10)
 -- Los anclajes laterales siguen respondiendo al ancho del padre.

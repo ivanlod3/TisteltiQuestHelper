@@ -1,7 +1,7 @@
 -- Reordenacion visual de filas originales de Blizzard. Sin filas auxiliares.
 -- NativeCapacity permite que el contenedor original construya todas las filas.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Zones = {}
 ns.TrackerZones = Zones
 
@@ -82,6 +82,7 @@ end
 local function refreshZoneCache()
     if not cacheDirty or unsafe() then return end
     cacheDirty = false
+    if ns.Perf then ns.Perf.Count("scan.zones") end
     local result, current = {}, "Otras misiones"
     local count = safe(Q and Q.GetNumQuestLogEntries)
     if type(count) ~= "number" or count < 0 or count > 500 then
@@ -213,24 +214,26 @@ local function restorePosition(block)
         positions[block], addonPlacement[block], hiddenByUs[block] = nil, nil, nil
         return
     end
-    local itemBefore = itemSnapshot(block)
-    if anchors then
+    local itemBefore
+    if anchors and not samePosition(readPosition(block), anchors) then
+        itemBefore = itemSnapshot(block)
+        if ns.Perf then ns.Perf.Count("layout.anchor.restore") end
         block:ClearAllPoints()
         for _, a in ipairs(anchors) do
             block:SetPoint(a[1], a[2], a[3], a[4], a[5])
         end
     end
     if hiddenByUs[block] then
-        if readable(block.used) and block.used == true then block:Show() end
+        if readable(block.used) and block.used == true and safe(block.IsShown,block) ~= true then block:Show() end
         hiddenByUs[block] = nil
     end
-    addonPlacement[block] = nil
+    positions[block], addonPlacement[block] = nil, nil
     syncQuestItem(block,itemBefore)
 end
 local function hideHeadings()
-    for _, head in ipairs(headings) do head.frame:Hide() end
+    for _, head in ipairs(headings) do if safe(head.frame.IsShown,head.frame) == true then head.frame:Hide() end end
 end
-local refreshVisual -- forward reference for local heading click handlers
+local refreshVisual, scheduleVisual -- forward references for UI and native hooks
 -- Las zonas toman la tipografia y color del titulo nativo "Misiones".
 -- Solo afecta a elementos creados por el addon.
 local function headingFont(text)
@@ -376,6 +379,7 @@ local function render(tracker, fromNative)
         return
     end
     applying = true
+    if ns.Perf then ns.Perf.Count("layout.render") end
     if ns.Diagnostics then ns.Diagnostics.Capture("before-addon") end
     local content = tracker.ContentsFrame
     local wantZones = option("trackerZoneSections")
@@ -530,15 +534,21 @@ local function render(tracker, fromNative)
         local gap = headingsUsed == 0 and 0 or HEADER_TOP_GAP
         headingsUsed = headingsUsed + 1
         local rec = heading(content, headingsUsed)
-        rec.zone = zone
-        rec.text:SetText(zone)
+        if rec.zone ~= zone then rec.zone = zone; rec.text:SetText(zone) end
         headingFont(rec.text)
         headingColor(rec.text, rec.arrow, rec.hovered)
-        setHeadingArrow(rec, collapsedZones[zone] and searchQuery == "")
-        rec.frame:ClearAllPoints()
-        rec.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + gap))
-        rec.frame:SetWidth(math.max(70, contentWidth - 10))
-        rec.frame:Show()
+        local collapsed = collapsedZones[zone] == true and searchQuery == ""
+        if rec.collapsed ~= collapsed then setHeadingArrow(rec, collapsed); rec.collapsed = collapsed end
+        local wanted = {{"TOPLEFT",content,"TOPLEFT",0,-(y+gap)}}
+        if not samePosition(readPosition(rec.frame),wanted) then
+            rec.frame:ClearAllPoints()
+            rec.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + gap))
+            if ns.Perf then ns.Perf.Count("layout.anchor.heading") end
+        end
+        local width = math.max(70,contentWidth-10)
+        local actualWidth = safe(rec.frame.GetWidth,rec.frame)
+        if type(actualWidth) ~= "number" or math.abs(actualWidth-width)>0.01 then rec.frame:SetWidth(width) end
+        if safe(rec.frame.IsShown,rec.frame) ~= true then rec.frame:Show() end
         y = y + gap + HEADER_HEIGHT + HEADER_BOTTOM_GAP
     end
     if previousZone and (not paging or y+HEADER_HEIGHT+HEADER_BOTTOM_GAP <= viewHeight) then drawHeading(previousZone) end
@@ -567,17 +577,21 @@ local function render(tracker, fromNative)
             -- Solo la referencia vertical del bloque. Regiones, anchuras,
             -- alturas, callbacks e iconos siguen siendo los de Blizzard.
             local anchors = positions[b]
-            local itemBefore = itemSnapshot(b)
-            b:ClearAllPoints()
+            local wanted = {}
             for j, a in ipairs(anchors) do
-                if j == rect.top then
-                    b:SetPoint("TOPLEFT", content, "TOPLEFT", anchors[rect.left][4], -y)
-                else b:SetPoint(a[1], a[2], a[3], a[4], a[5]) end
+                wanted[j] = j == rect.top and {"TOPLEFT",content,"TOPLEFT",anchors[rect.left][4],-y} or a
             end
             local placed = readPosition(b)
+            if not samePosition(placed,wanted) then
+                local itemBefore = itemSnapshot(b)
+                b:ClearAllPoints()
+                for _, a in ipairs(wanted) do b:SetPoint(a[1],a[2],a[3],a[4],a[5]) end
+                if ns.Perf then ns.Perf.Count("layout.anchor.quest") end
+                placed = readPosition(b)
+                syncQuestItem(b,itemBefore)
+            end
             if placed then placed.id = b.id end
             addonPlacement[b] = placed
-            syncQuestItem(b,itemBefore)
             if safe(b.IsShown, b) ~= true then b:Show() end
             hiddenByUs[b] = nil
             visible[b] = true
@@ -593,29 +607,26 @@ local function render(tracker, fromNative)
             hiddenByUs[e.block] = true
         end
     end
-    for i = headingsUsed + 1, #headings do headings[i].frame:Hide() end
+    for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end
     if ns.NativeCapacity and paging then ns.NativeCapacity.FitVisible(tracker, y) end
     scrollRows, scrollLast = paging and rows or nil, lastDrawn
     scrollIndex = startIndex
     local first = rows[startIndex]
     scrollKey = paging and first and (first.type == "heading" and "zone:" .. first.zone
         or "quest:" .. tostring(first.entry.id)) or nil
-    -- Los resaltados se repintan despues de ocultar/mostrar; asi no dependen
-    -- del orden de registro de los hooks EndLayout entre modulos.
-    if ns.RecentQuests and ns.RecentQuests.RepaintRendered then
-        ns.RecentQuests.RepaintRendered()
-    end
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
 refreshVisual = function(fromNative)
-    if unsafe() then return end
+    if applying or unsafe() then return end
     local tracker = _G.QuestObjectiveTracker
     if tracker then
-        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, refreshVisual) end
+        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, function() scheduleVisual(true) end) end
         render(tracker, fromNative)
+        if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
+function Zones.HandlesRecent() return hooked end
 local function installHooks()
     if hooked or type(hooksecurefunc) ~= "function" then return end
     local tracker = _G.QuestObjectiveTracker
@@ -624,7 +635,7 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() then refreshVisual(true) end
+        if not unsafe() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true) end
     end)
     if ok then hooked = true end
 end
@@ -672,7 +683,7 @@ local function makeSearch()
         if searchClosing then return end
         local value = lower((self:GetText() or ""):match("^%s*(.-)%s*$"))
         if value ~= searchQuery then
-            searchQuery, searchCorpus = value, {}
+            searchQuery = value
             refreshVisual(false)
         end
         -- El clic en borrar puede quitar el foco antes de vaciar el campo.
@@ -741,9 +752,11 @@ local function configureWheel()
     end
     if type(target.EnableMouseWheel)~="function" then return end
     if wheelHooked then
-        if wheelTracker==target and oldWheelEnabled~=nil then
-            pcall(target.EnableMouseWheel,target,
-                option("trackerScrollBeta") or oldWheelEnabled)
+        if wheelTracker and oldWheelEnabled~=nil then
+            local wanted = option("trackerScrollBeta") or oldWheelEnabled
+            if safe(wheelTracker.IsMouseWheelEnabled,wheelTracker) ~= wanted then
+                pcall(wheelTracker.EnableMouseWheel,wheelTracker,wanted)
+            end
         end
         return
     end
@@ -780,20 +793,27 @@ local function configureWheel()
     end
 end
 
-local scheduled = false
-local function scheduleVisual()
-    if scheduled or unsafe() then return end
+local scheduled, pendingNative = false, false
+scheduleVisual = function(fromNative)
+    if unsafe() then return end
+    pendingNative = pendingNative or fromNative == true
+    if scheduled then
+        if ns.Perf then ns.Perf.Count("layout.coalesced") end
+        return
+    end
+    local function flush()
+        scheduled = false
+        local native = pendingNative
+        pendingNative = false
+        if unsafe() then return end
+        installHooks()
+        if not wheelHooked then configureWheel() end
+        refreshVisual(native)
+    end
     if C_Timer and type(C_Timer.After) == "function" then
         scheduled = true
-        C_Timer.After(0.05, function()
-            scheduled = false
-            installHooks()
-            configureWheel()
-            refreshVisual(false)
-        end)
-    else
-        refreshVisual(false)
-    end
+        C_Timer.After(0, flush)
+    else flush() end
 end
 function Zones.Initialize()
     installHooks()
@@ -806,11 +826,13 @@ function Zones.Initialize()
     scheduleVisual()
 end
 function Zones.RefreshAfterWatchSwap()
+    if ns.QuestState then ns.QuestState.Invalidate() end
     -- El antiguo scrollKey apuntaba a una instantánea diferente de watches.
     scrollIndex, scrollKey, scrollRows = 1, nil, nil
     scheduleVisual()
 end
 function Zones.RefreshSettings(key)
+    if key ~= "trackerSearchButton" and key ~= "trackerScrollBeta" and key ~= "trackerZoneSections" and key ~= "trackerSortMode" then return end
     if key == "trackerSearchButton" then
         makeSearch()
         if not option("trackerSearchButton") and searchVisible and searchBox then
@@ -885,8 +907,11 @@ eventFrame:SetScript("OnEvent", function(_, event)
         hideHeadings()
         return
     end
-    if event ~= "PLAYER_REGEN_ENABLED" then cacheDirty = true end
-    searchCorpus = {}
+    -- Watch-list changes only change the visible selection, not zone metadata.
+    if event ~= "QUEST_WATCH_LIST_CHANGED" and event ~= "PLAYER_REGEN_ENABLED" then
+        cacheDirty = true
+        if searchQuery ~= "" or next(searchCorpus) then searchCorpus = {} end
+    end
     if event == "PLAYER_ENTERING_WORLD" then installHooks(); makeSearch(); configureWheel() end
     if not unsafe() then scheduleVisual() end
 end)

@@ -2,7 +2,7 @@
 -- Sin paneles, popups, notificaciones, sonidos ni cambios de zona.
 -- Escaneos por eventos y un único temporizador de caducidad.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Recent = {}
 ns.RecentQuests = Recent
 
@@ -47,6 +47,12 @@ local function colorFor(kind)
     if kind == "AVANCE" then return 0.25, 0.71, 1 end
     if kind == "LISTA" then return 0.32, 1, 0.48 end
 end
+local function hideGlow(rec)
+    if rec and rec.questID then
+        rec.glow:Hide(); rec.edge:Hide(); rec.questID, rec.kind = nil, nil
+        if ns.Perf then ns.Perf.Count("recent.texture.write") end
+    end
+end
 local function paint(block, id)
     if not block or not block.HeaderText or isUnsafe() then return end
     -- GetExistingBlock can return a pooled row whose owner has already changed.
@@ -54,14 +60,14 @@ local function paint(block, id)
     if not readable(block.id) or block.id ~= id
         or not readable(block.used) or block.used ~= true then
         local old = glowByBlock[block]
-        if old then old.glow:Hide(); old.edge:Hide(); old.questID = nil end
+        hideGlow(old)
         return
     end
     local kind = recent[id] and recent[id].expires > GetTime() and recent[id].kind
     local r, g, b = colorFor(kind)
     local rec = glowByBlock[block]
     if not r then
-        if rec then rec.glow:Hide(); rec.edge:Hide(); rec.questID = nil end
+        hideGlow(rec)
         return
     end
     if not rec then
@@ -76,7 +82,9 @@ local function paint(block, id)
         rec = {glow = glow, edge = edge}
         glowByBlock[block] = rec
     end
-    rec.questID = id  -- pooled block can later belong to another quest
+    if rec.questID == id and rec.kind == kind then return end
+    rec.questID, rec.kind = id, kind -- pooled block can later belong to another quest
+    if ns.Perf then ns.Perf.Count("recent.texture.write") end
     rec.glow:SetColorTexture(r, g, b, 0.38)
     rec.edge:SetColorTexture(r, g, b, 1)
     rec.glow:Show()
@@ -105,8 +113,7 @@ local function updateDecoration(id)
             if type(questID) == "number" and questID > 0 then
                 paint(block, questID)
             else
-                rec.glow:Hide()
-                rec.edge:Hide()
+                hideGlow(rec)
             end
         end
     end
@@ -115,6 +122,8 @@ end
 -- actual rendered, currently watched blocks. No native repositioning/redraw.
 function Recent.RepaintRendered()
     if isUnsafe() then return end
+    if not active() then for _,rec in pairs(glowByBlock) do hideGlow(rec) end; return end
+    if ns.Perf then ns.Perf.Count("recent.repaint") end
     local module = _G.QuestObjectiveTracker
     if not module or type(module.GetExistingBlock) ~= "function" then return end
     local count = safe(Q and Q.GetNumQuestWatches)
@@ -136,9 +145,7 @@ function Recent.RepaintRendered()
     -- different quest or a released row. Weak keys prevent retained UI frames.
     for block, rec in pairs(glowByBlock) do
         if not painted[block] then
-            rec.glow:Hide()
-            rec.edge:Hide()
-            rec.questID = nil
+            hideGlow(rec)
         end
     end
 end
@@ -152,7 +159,7 @@ local function tryNativeHook()
         or (type(module.LayoutContents) == "function" and "LayoutContents")
     if method then
         nativeHooked = pcall(hooksecurefunc, module, method, function()
-            Recent.RepaintRendered()
+            if not (ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent()) then Recent.RepaintRendered() end
         end)
     end
 end
@@ -200,7 +207,7 @@ local function stateText(state)
 end
 local function mark(id, kind, reason, before, after)
     if not active() or type(id) ~= "number" or id <= 0 then return end
-    if ns.Diagnostics and ns.Diagnostics.RecordRecent then
+    if ns.Diagnostics and ns.Diagnostics.RecordRecent and (not ns.Diagnostics.IsActive or ns.Diagnostics.IsActive()) then
         ns.Diagnostics.RecordRecent(id, kind, reason or "evento",
             stateText(before), stateText(after))
     end
@@ -266,6 +273,7 @@ local function changedObjective(before, after)
     return nil
 end
 local function scan(initial)
+    if ns.Perf then ns.Perf.Count("scan.recent") end
     pendingScan = false
     if not active() or not Q or not allowed() then return end
     local total = safe(Q.GetNumQuestLogEntries)

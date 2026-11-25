@@ -2,7 +2,7 @@
 -- La información incompleta del diario nunca debe transformar un objetivo
 -- explícitamente pendiente en una misión lista para entregar.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Status = {}
 ns.QuestStatus = Status
 

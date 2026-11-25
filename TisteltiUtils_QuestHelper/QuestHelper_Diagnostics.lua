@@ -7,6 +7,7 @@ local active, busy, serial, generation = false, false, 0, 0
 local samples, identities, native, hooked = {}, {}, {}, {}
 local pending, dropped, failure = false, 0, nil
 local recentEvents, MAX_RECENT = {}, 60
+function D.IsActive() return active end
 function D.RecordRecent(id, kind, reason, before, after)
     if not active then return end
     local record = "RECENT\tquest=" .. tostring(id) .. "\tkind=" .. tostring(kind)

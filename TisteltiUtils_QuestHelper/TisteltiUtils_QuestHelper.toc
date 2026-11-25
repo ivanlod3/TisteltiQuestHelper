@@ -8,6 +8,7 @@
 ## Version: 0.7.53
 ## SavedVariables: TisteltiQuestHelperDB
 ## SavedVariablesPerCharacter: FQTL4_Seen, TisteltiQuestHelperCharDB
+QuestHelper_State.lua
 TisteltiUtils_QuestHelper.lua
 QuestHelper_Announcements.lua
 QuestHelper_Items.lua

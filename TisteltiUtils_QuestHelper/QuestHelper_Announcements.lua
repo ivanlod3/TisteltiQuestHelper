@@ -248,9 +248,10 @@ local function objectiveLabel(text)
 end
 
 local function readQuest(questID, titleHint)
+    local journal = ns.QuestState and ns.QuestState.API or C_QuestLog
     local title = stringValue(secureCall(C_QuestLog.GetTitleForQuestID, questID)) or titleHint
     if not title or title == "" then return nil end
-    local raw = secureCall(C_QuestLog.GetQuestObjectives, questID)
+    local raw = secureCall(journal.GetQuestObjectives, questID)
     if type(raw) ~= "table" then
         if C_QuestLog.RequestLoadQuestByID then
             pcall(C_QuestLog.RequestLoadQuestByID, questID)
@@ -357,6 +358,7 @@ local function requestScan(delay)
     end)
 end
 function scan()
+    if ns.Perf then ns.Perf.Count("scan.announcements") end
     if not started or not C_QuestLog or not scanNoticesEnabled() or not inParty() then return end
     -- En la ventana de estabilizacion no modificar el baseline; evitamos falsos avisos
     -- por contadores que el cliente restaura al entrar al mundo.
@@ -364,12 +366,13 @@ function scan()
         requestScan(math.max(0.1, settleUntil - GetTime() + 0.1))
         return
     end
-    local total = numeric(secureCall(C_QuestLog.GetNumQuestLogEntries)) or 0
+    local journal = ns.QuestState and ns.QuestState.API or C_QuestLog
+    local total = numeric(secureCall(journal.GetNumQuestLogEntries)) or 0
     local found = {}
     local silent = silentAfterZoning
     silentAfterZoning = false
     for i = 1, total do
-        local info = secureCall(C_QuestLog.GetInfo, i)
+        local info = secureCall(journal.GetInfo, i)
         if type(info) == "table" and bool(info.isHeader) == false then
             local questID = numeric(info.questID)
             if questID and questID > 0 and not found[questID] then

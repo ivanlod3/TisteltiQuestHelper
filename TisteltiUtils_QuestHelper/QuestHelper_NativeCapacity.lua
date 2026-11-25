@@ -24,6 +24,10 @@ local BUILD_HEIGHT = 32768
 local clampInsets, writingClamp
 local function setClamp(extra)
     if not clampInsets then return false end
+    local l,r,t,b = container:GetClampRectInsets()
+    local wanted = clampInsets[4]+extra
+    if l==clampInsets[1] and r==clampInsets[2] and t==clampInsets[3] and b==wanted then return true end
+    if ns.Perf then ns.Perf.Count("layout.clamp.write") end
     writingClamp = true
     local ok = pcall(container.SetClampRectInsets, container,
         clampInsets[1], clampInsets[2], clampInsets[3], clampInsets[4] + extra)
@@ -61,6 +65,7 @@ end
 local function setHeight(frame, height)
     if not editable(frame) or not number(height) or height <= 0 then return false end
     if math.abs(frame:GetHeight() - height) < 0.01 then return true end
+    if ns.Perf then ns.Perf.Count("layout.height.write") end
     writing = true
     local ok = pcall(frame.SetHeight, frame, height)
     writing = false
@@ -141,7 +146,7 @@ function Capacity.Initialize(target, refresh)
             Capacity.Configure()
         end
     end
-    hooksecurefunc(parent, "Update", finishLayout)
+    hooksecurefunc(parent, "Update", refreshAfterNative)
     -- dirtyCallback conserva una referencia previa a parent.Update. El
     -- modulo se invoca tambien en ese recorrido, incluso si omite EndLayout.
     hooksecurefunc(target, "Update", refreshAfterNative)
@@ -180,6 +185,7 @@ function Capacity.Initialize(target, refresh)
         end
     end)
 end
+function Capacity.HandlesNative() return enabled and container ~= nil end
 function Capacity.GetViewHeight(target)
     if not enabled or target ~= tracker or not baseHeight then return end
     local top = container.topModulePadding or 0

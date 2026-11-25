@@ -18,3 +18,7 @@ The obsolete auxiliary-row harnesses (`test_v51_layout.lua`, `test_v51_overflow.
 ## Pending in-client verification for this branch
 
 The native build-height strategy (`32768`) and taint behaviour require a real Forever 1.60.1 session. Static Lua tests do not certify protected-frame safety. On a disposable copy of the addon, use `/tqhdiag start`, change page, fold/unfold zones, search, enter/leave combat, and `/tqhdiag stop` then `/tqhdiag export` **before reload**. Inspect `ItemButton` parent/anchors/rect and `RECENT` reasons; test multiple simultaneously tracked item-objective quests. If unrelated wheel handlers exist, verify a single wheel notch changes only one page step and does not also scroll another control. Do not modify live addon files while playing.
+
+## Performance validation
+
+Use `/qh perf reset`, stand still for 60 seconds, then `/qh perf`. Repeat while moving, collecting one quest item, scrolling, filtering and leaving combat. Compare event counts, native journal reads/cache hits, render attempts, anchor/height/clamp writes, texture writes and Baganator refreshes. Stable native geometry must not cause repeated quest anchor writes. A native rebuild may require reapplying anchors even when quest data are unchanged. Keep /tqhdiag disabled for representative measurements. The shared read cache is event-invalidated with a 350 ms maximum age; the reversible turn-in watch swap deliberately retains fresh reads for safety. The 32768 build height remains experimental, with no in-game performance or taint certification.
