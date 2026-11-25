@@ -5,6 +5,8 @@
 
 local ADDON_NAME, ns = ...
 local MACRO_NAME = "QuestHelper"
+local MACRO_ICON = "INV_Misc_Map_01"
+local macroIconApplied = false
 local LEGACY_MACRO_NAME = "QuestTargetLite" -- rename in place to preserve existing action-bar slots
 local MACRO_LIMIT = 255
 local LINE_OBJECTIVE = (Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.QuestObjective) or 8
@@ -279,14 +281,17 @@ local function writeMacro()
         legacy = index ~= 0
     end
     if index == 0 then
-        local success, result = pcall(CreateMacro, MACRO_NAME, "INV_Misc_QuestionMark", body, true)
-        if not success or not result then
+        local success, result = pcall(CreateMacro, MACRO_NAME, MACRO_ICON, body, true)
+        if not success or not result or result == 0 then
             out("No puedo crear la macro (¿limite de macros personales alcanzado?).")
+        else
+            macroIconApplied = true
         end
-    elseif legacy or safe(GetMacroBody, index) ~= body then
+    elseif legacy or not macroIconApplied or safe(GetMacroBody, index) ~= body then
         -- Edit the existing macro ID so action-bar placements keep working.
-        local success = pcall(EditMacro, index, MACRO_NAME, nil, body, true)
-        if not success then out("No puedo editar la macro. Intentalo fuera de combate.") end
+        local success = pcall(EditMacro, index, MACRO_NAME, MACRO_ICON, body, true)
+        if success then macroIconApplied = true
+        else out("No puedo editar la macro. Intentalo fuera de combate.") end
     end
 end
 
