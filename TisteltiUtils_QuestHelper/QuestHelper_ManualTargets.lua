@@ -2,6 +2,8 @@
 -- Only explicit menu clicks mutate the per-character FIFO; no polling.
 local _, ns = ...
 local NAME, LIMIT = "TQH_Manual", 255
+local MACRO_ICON = "Ability_Hunter_SniperShot"
+local macroIconApplied = false
 local PREFIX, SUFFIX = "/cleartarget", "\n/cleartarget [dead][noharm]"
 local pending, registered = false, false
 local function say(text)
@@ -59,15 +61,17 @@ local function write()
     end
     if index == 0 then
         if #list == 0 then return end
-        local id = safe(CreateMacro, NAME, "INV_Misc_QuestionMark", body, true)
+        local id = safe(CreateMacro, NAME, MACRO_ICON, body, true)
         if not id or id == 0 then
             say("No puedo crear " .. NAME .. ": comprueba el espacio de macros personales.")
         else
+            macroIconApplied = true
             say("Macro personal creada: " .. NAME .. ". Arrastrala a tu barra.")
         end
-    elseif safe(GetMacroBody, index) ~= body then
-        safe(EditMacro, index, NAME, nil, body, true)
-        if safe(GetMacroBody, index) ~= body then say("No se pudo actualizar " .. NAME .. ".") end
+    elseif not macroIconApplied or safe(GetMacroBody, index) ~= body then
+        local ok = pcall(EditMacro, index, NAME, MACRO_ICON, body, true)
+        if ok and safe(GetMacroBody, index) == body then macroIconApplied = true
+        else say("No se pudo actualizar " .. NAME .. ".") end
     end
 end
 local function add(name)
