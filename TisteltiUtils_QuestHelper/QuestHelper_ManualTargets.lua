@@ -99,6 +99,7 @@ local function remove(name)
     return false
 end
 local function clear()
+    listForCharacter()
     TisteltiQuestHelperCharDB.manualTargets = {}
     write()
     say("Objetivos manuales vaciados.")
@@ -138,6 +139,7 @@ local function register()
         say("Menu nativo no disponible; usa /tqhmanual add con el NPC seleccionado.")
         return
     end
+    Menu.ModifyMenu("MENU_UNIT_ENEMY", function(_, root, context) menu(root, context, "target") end)
     Menu.ModifyMenu("MENU_UNIT_TARGET", function(_, root, context) menu(root, context, "target") end)
     Menu.ModifyMenu("MENU_UNIT_FOCUS", function(_, root, context) menu(root, context, "focus") end)
     registered = true
