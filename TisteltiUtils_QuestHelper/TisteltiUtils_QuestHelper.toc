@@ -19,4 +19,5 @@ QuestHelper_TrackerZones.lua
 QuestHelper_ProgressShare.lua
 QuestHelper_Recent.lua
 QuestHelper_TurnInFilter.lua
+QuestHelper_ManualTargets.lua
 QuestHelper_Options.lua
