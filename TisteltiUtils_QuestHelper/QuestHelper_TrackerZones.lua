@@ -363,6 +363,9 @@ end
 -- Unlike the 0.7.42-0.7.46 fallback modes, this never guesses a capacity
 -- from ContentsFrame:GetHeight() (which is the *used*, not available height),
 -- and it never leaves a header anchored to a discarded quest block.
+local function capacityFallback()
+    return option("trackerScrollBeta") and ns.NativeCapacity and ns.NativeCapacity.IsTripped and ns.NativeCapacity.IsTripped()
+end
 local function render(tracker, fromNative)
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
@@ -373,9 +376,10 @@ local function render(tracker, fromNative)
         scrollRows, lastGeometry = nil, {}
         return
     end
-    if conflictingTracker() then
+    if conflictingTracker() or capacityFallback() then
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
+        scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil,1,nil,0,{}
         return
     end
     applying = true
@@ -626,7 +630,7 @@ refreshVisual = function(fromNative)
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
-function Zones.HandlesRecent() return hooked end
+function Zones.HandlesRecent() return hooked and not capacityFallback() end
 local function installHooks()
     if hooked or type(hooksecurefunc) ~= "function" then return end
     local tracker = _G.QuestObjectiveTracker
@@ -635,16 +639,16 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true) end
+        if not unsafe() and not capacityFallback() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true) end
     end)
     if ok then hooked = true end
 end
 local function makeSearch()
     if searchButton then
-        searchButton:SetShown(option("trackerSearchButton"))
+        searchButton:SetShown(option("trackerSearchButton") and not capacityFallback())
         return
     end
-    if not option("trackerSearchButton") or unsafe() then return end
+    if not option("trackerSearchButton") or unsafe() or capacityFallback() then return end
     local tracker = _G.QuestObjectiveTracker
     local header = tracker and tracker.Header
     local minimize = header and header.MinimizeButton
@@ -831,6 +835,20 @@ function Zones.RefreshAfterWatchSwap()
     scrollIndex, scrollKey, scrollRows = 1, nil, nil
     scheduleVisual()
 end
+function Zones.OnCapacityTripped()
+    if searchVisible and searchBox then
+        searchClosing,searchVisible=true,false
+        searchBox:ClearFocus()
+        searchBox:SetText("")
+        searchBox:Hide()
+        searchQuery,searchCorpus="",{}
+        local tracker=_G.QuestObjectiveTracker
+        if tracker and tracker.Header and tracker.Header.Text then tracker.Header.Text:Show() end
+        searchClosing=false
+    end
+    if searchButton then searchButton:Hide() end
+    scheduleVisual()
+end
 function Zones.RefreshSettings(key)
     if key ~= "trackerSearchButton" and key ~= "trackerScrollBeta" and key ~= "trackerZoneSections" and key ~= "trackerSortMode" then return end
     if key == "trackerSearchButton" then
@@ -846,6 +864,7 @@ function Zones.RefreshSettings(key)
     elseif key == "trackerScrollBeta" then
         scrollIndex, scrollKey = 1, nil
         configureWheel()
+        makeSearch()
     end
     scheduleVisual()
 end

@@ -15,6 +15,10 @@ function Perf.Report(reset)
     for key in pairs(counts) do keys[#keys+1] = key end
     table.sort(keys)
     print(("QuestHelper perf: %.1f s desde el reinicio"):format(GetTime()-since))
+    if ns.NativeCapacity and ns.NativeCapacity.GetState then
+        local state=ns.NativeCapacity.GetState()
+        print("capacity: "..tostring(state.reason))
+    end
     for _, key in ipairs(keys) do print(key .. ": " .. counts[key]) end
 end
 function Perf.Snapshot()
