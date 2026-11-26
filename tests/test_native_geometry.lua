@@ -272,7 +272,12 @@ headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState()
 assert(item:IsShown() and not initiallyHidden:IsShown(),"unfold must only restore addon-hidden items")
 search:SetText('Dos');assert(not item:IsShown(),"search exposed filtered item")
 search:SetText('');assert(item:IsShown(),"search reset did not restore item")
-tracker.scripts.OnMouseWheel(tracker,-1)
+-- The first step can move from a zone heading to its first quest;
+-- advance until that quest actually leaves the viewport.
+for i=1,10 do
+ if not blocks[101]:IsShown() then break end
+ tracker.scripts.OnMouseWheel(tracker,-1)
+end
 assert(not blocks[101]:IsShown() and not item:IsShown(),"scroll exposed offscreen item")
 for i=1,10 do tracker.scripts.OnMouseWheel(tracker,1) end
 assert(item:IsShown(),"scroll return did not restore item")
