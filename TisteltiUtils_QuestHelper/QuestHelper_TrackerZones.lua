@@ -10,6 +10,7 @@ local headings = {}
 local pager, lastViewport, lastContentHeight
 local positions = setmetatable({}, { __mode = "k" })
 local hiddenByUs = setmetatable({}, { __mode = "k" })
+local hiddenItems = setmetatable({}, { __mode = "k" })
 local zoneByID = {}
 local cacheDirty, hooked, applying, warned = true, false, false, false
 local wheelHooked, wheelTracker, oldWheelEnabled = false, nil, nil
@@ -135,6 +136,63 @@ local function readPosition(block)
     end
     return anchors
 end
+-- A native item button can be a sibling of its quest block. Hiding the
+-- block does not hide siblings. Record only visibility we actually changed;
+-- child buttons inherit visibility naturally, and protected buttons are
+-- never touched. A recycled block or replaced button invalidates ownership.
+local function externalItem(block)
+    local item=questItem(block)
+    if not item or unsafe() or safe(item.IsProtected,item)~=false then return end
+    local parent=safe(item.GetParent,item)
+    if not parent then return end
+    local ancestor=parent
+    for i=1,32 do
+        if ancestor==block then return end
+        local nextParent=safe(ancestor.GetParent,ancestor)
+        if not nextParent then return item,parent end
+        if nextParent==ancestor then return end
+        ancestor=nextParent
+    end
+end
+local function syncItemVisibility(block, visible)
+    local saved=hiddenItems[block]
+    if not readable(block.id) or type(block.id)~="number" or not readable(block.used) or block.used~=true then
+        hiddenItems[block]=nil
+        return
+    end
+    local item,parent=externalItem(block)
+    if saved and (saved.id~=block.id or saved.item~=questItem(block)
+        or (parent and saved.parent~=parent)) then
+        hiddenItems[block]=nil
+        saved=nil
+    end
+    if not item then return end
+    local shown=safe(item.IsShown,item)
+    if visible then
+        if saved and saved.item==item and shown==false then
+            if pcall(item.Show,item) then
+                hiddenItems[block]=nil
+                if ns.Perf then ns.Perf.Count("layout.item.show") end
+            end
+        elseif saved and shown==true then hiddenItems[block]=nil end
+    elseif shown==true then
+        if pcall(item.Hide,item) then
+            hiddenItems[block]={id=block.id,item=item,parent=parent}
+            if ns.Perf then ns.Perf.Count("layout.item.hide") end
+        end
+    end
+end
+local function setQuestBlockVisible(block, visible)
+    if not canMove(block) or not readable(block.used) or block.used~=true then return end
+    if visible then
+        if safe(block.IsShown,block)==false then block:Show() end
+        hiddenByUs[block]=nil
+    else
+        if safe(block.IsShown,block)==true then block:Hide() end
+        hiddenByUs[block]=true
+    end
+    syncItemVisibility(block,visible)
+end
 local function itemSnapshot(block)
     local item = questItem(block)
     if not item or (type(item.IsProtected) == "function"
@@ -212,7 +270,7 @@ local function restorePosition(block)
     if not canMove(block) then return end
     local anchors = positions[block]
     if anchors and (block.used ~= true or block.id ~= anchors.id) then
-        positions[block], addonPlacement[block], hiddenByUs[block] = nil, nil, nil
+        positions[block], addonPlacement[block], hiddenByUs[block], hiddenItems[block] = nil, nil, nil, nil
         return
     end
     local itemBefore
@@ -224,10 +282,8 @@ local function restorePosition(block)
             block:SetPoint(a[1], a[2], a[3], a[4], a[5])
         end
     end
-    if hiddenByUs[block] then
-        if readable(block.used) and block.used == true and safe(block.IsShown,block) ~= true then block:Show() end
-        hiddenByUs[block] = nil
-    end
+    if hiddenByUs[block] then setQuestBlockVisible(block,true)
+    else syncItemVisibility(block,true) end
     positions[block], addonPlacement[block] = nil, nil
     syncQuestItem(block,itemBefore)
 end
@@ -684,8 +740,7 @@ local function render(tracker, fromNative)
             end
             if placed then placed.id = b.id end
             addonPlacement[b] = placed
-            if safe(b.IsShown, b) ~= true then b:Show() end
-            hiddenByUs[b] = nil
+            setQuestBlockVisible(b,true)
             visible[b] = true
             lastGeometry[#lastGeometry + 1] = {id = row.entry.id, y = y,
                 width = rect.width, height = rect.height}
@@ -695,8 +750,7 @@ local function render(tracker, fromNative)
     end
     for _, e in ipairs(actual) do
         if not visible[e.block] then
-            if safe(e.block.IsShown, e.block) == true then e.block:Hide() end
-            hiddenByUs[e.block] = true
+            setQuestBlockVisible(e.block,false)
         end
     end
     for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end

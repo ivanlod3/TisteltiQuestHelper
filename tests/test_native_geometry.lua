@@ -251,10 +251,42 @@ for _,keep in ipairs({true,false})do
 end
 print('OK X, lupa, Escape, Enter y blur con conservar activado/desactivado; ambos ordenes de eventos')
 
--- Plegado real mediante el encabezado del addon.
+-- Independently parented item visibility follows all presentation paths.
+local initiallyHidden=node('item',content)
+initiallyHidden:Hide();blocks[102].ItemButton=initiallyHidden
+local child=node('item',blocks[103]);blocks[103].ItemButton=child
+local protected=node('item',content);protected.protected=true;blocks[104].ItemButton=protected
+local writes=0
+local hide,show=item.Hide,item.Show
+function item:Hide() writes=writes+1;hide(self) end
+function item:Show() writes=writes+1;show(self) end
 local headings=assert(upvalue(ns.TrackerZones.Initialize,'headings'))
+assert(item:IsShown())
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry==0)
+assert(not item:IsShown(),"external item floated after fold")
+assert(not initiallyHidden:IsShown() and child:IsShown() and protected:IsShown(),"native hidden/child/protected item changed")
+local stable=writes;tracker:EndLayout();assert(writes==stable,"redundant item visibility writes")
+-- Native can show the same owned button again while the zone is folded.
+show(item);tracker:EndLayout();assert(not item:IsShown(),"native rebuild exposed folded item")
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry>0)
+assert(item:IsShown() and not initiallyHidden:IsShown(),"unfold must only restore addon-hidden items")
+search:SetText('Dos');assert(not item:IsShown(),"search exposed filtered item")
+search:SetText('');assert(item:IsShown(),"search reset did not restore item")
+tracker.scripts.OnMouseWheel(tracker,-1)
+assert(not blocks[101]:IsShown() and not item:IsShown(),"scroll exposed offscreen item")
+for i=1,10 do tracker.scripts.OnMouseWheel(tracker,1) end
+assert(item:IsShown(),"scroll return did not restore item")
+-- Replacing an owned button must never resurrect the old pooled object.
+headings[1].frame.scripts.OnClick();assert(not item:IsShown())
+local replacement=node('item',content);replacement:Hide();blocks[101].ItemButton=replacement
+headings[1].frame.scripts.OnClick()
+assert(not item:IsShown() and not replacement:IsShown(),"recycled/hidden item resurrected")
+blocks[101].ItemButton=item;show(item)
+-- Disabling presentation restores only visibility we own.
+headings[1].frame.scripts.OnClick();assert(not item:IsShown())
+opts.trackerZoneSections=false;render(tracker,false)
+assert(item:IsShown() and not initiallyHidden:IsShown(),"disable failed to restore owned visibility")
+opts.trackerZoneSections=true;TisteltiQuestHelperCharDB.trackerFoldedZones={};resetNative();render(tracker,true)
 -- No escribir ni mover en combate.
 local writes=blocks[101].writes;combat=true;tracker.scripts.OnMouseWheel(tracker,-1);tracker:EndLayout();assert(blocks[101].writes==writes);combat=false
 -- Apagar las funciones restaura la cadena nativa, no anclajes propios.

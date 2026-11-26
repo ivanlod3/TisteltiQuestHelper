@@ -34,3 +34,6 @@ The native viewport is mandatory for all custom layouts, including fold/unfold w
 
 ### Automatic overflow wheel
 The visible area is bounded by the actual native module height. Overflow automatically enables whole-row wheel navigation, even with legacy trackerScrollBeta=false. When content fits, restore prior wheel state. No pager when the wheel is available; previous/next remains a fallback only for protected/occupied wheel targets. No native dimensions, reparenting or watch changes. Regression covers wheel on/off legacy preferences, all rows reachable, and repeated fold/unfold.
+
+### Item button visibility and unit menu safety
+For each native row, hide independently parented, non-protected item buttons only if shown; restore only addon-owned hidden state with matching quest ID, button and parent. Child buttons inherit row visibility. Regression covers folding, search, wheel, native re-show, replacement and disabling presentation. Do not extend unit menus during instances, combat or secret/unknown safety checks; commands remain. Real client taint and protected item buttons still require validation.

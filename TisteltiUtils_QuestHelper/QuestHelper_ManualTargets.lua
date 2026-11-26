@@ -123,7 +123,16 @@ local function enemyName(context, fallback)
     end)
     if ok then return name end
 end
+-- Unit menus can carry secret layout values in instances. Do not add
+-- even a divider in restricted or unknown contexts.
+local function menuAllowed()
+    if safe(InCombatLockdown) ~= false or safe(IsInInstance) ~= false then return false end
+    local check = C_Secrets and C_Secrets.ShouldAurasBeSecret
+    if check ~= nil and safe(check) ~= false then return false end
+    return true
+end
 local function menu(root, context, fallback)
+    if not menuAllowed() then return end
     if not root or type(root.CreateButton) ~= "function" then return end
     root:CreateDivider()
     local sub = root:CreateButton("QuestHelper: objetivos manuales")
