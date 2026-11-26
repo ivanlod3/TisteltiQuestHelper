@@ -1,5 +1,5 @@
 -- Reordenacion visual de filas originales de Blizzard. Sin filas auxiliares.
--- NativeCapacity permite que el contenedor original construya todas las filas.
+-- El contenedor y las dimensiones nativas son de solo lectura.
 local addonName, ns = ...
 local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Zones = {}
@@ -354,31 +354,6 @@ local function collectRendered(tracker)
     nativeWatches = #result
     return result
 end
-function Zones.NeedsCapacity()
-    return not conflictingTracker() and option("trackerScrollBeta") and
-        (option("trackerZoneSections") or searchQuery ~= "" or
-        (ns.TrackerSort and ns.TrackerSort.IsActive and ns.TrackerSort.IsActive()))
-end
-function Zones.HasMissingNativeBlocks(tracker)
-    if not tracker or unsafe() or safe(tracker.IsCollapsed,tracker)==true or
-        (tracker.parentContainer and safe(tracker.parentContainer.IsCollapsed,tracker.parentContainer)==true) then return false end
-    local count=safe(Q and Q.GetNumQuestWatches)
-    if type(count)~="number" or count<1 or count>100 then return false end
-    -- No expansion from incomplete or unreadable watch data. Hidden by our
-    -- pagination is still a valid native block: use ownership, not IsShown.
-    local missing=false
-    for i=1,count do
-        local id=safe(Q.GetQuestIDForQuestWatchIndex,i)
-        if type(id)~="number" or id<=0 then return false end
-        local b=safe(tracker.GetExistingBlock,tracker,id)
-        if not b or not readable(b.id) or b.id~=id or not readable(b.used) or b.used~=true then missing=true end
-    end
-    return missing
-end
--- Reflow ONLY the blocks created by the native tracker on this layout pass.
--- Unlike the 0.7.42-0.7.46 fallback modes, this never guesses a capacity
--- from ContentsFrame:GetHeight() (which is the *used*, not available height),
--- and it never leaves a header anchored to a discarded quest block.
 local function render(tracker, fromNative)
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
@@ -424,7 +399,6 @@ local function render(tracker, fromNative)
     if #actual == 0 then
         hideHeadings()
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
-        if ns.NativeCapacity then ns.NativeCapacity.FitVisible(tracker, 0) end
         applying = false
         return
     end
@@ -479,13 +453,10 @@ local function render(tracker, fromNative)
 
     -- Solo se cuentan bloques existentes, usados y con el mismo ID.
     local paging = option("trackerScrollBeta") and #actual > 0
-    local capacityState = ns.NativeCapacity and ns.NativeCapacity.GetState()
-    local awaitingBuild = capacityState and capacityState.enabled and
-        type(tracker.availableHeight)=="number" and tracker.availableHeight < capacityState.base
-    if fromNative and option("trackerScrollBeta") and not awaitingBuild and #actual ~= totalWatches and not warnedIncomplete then
+    if fromNative and option("trackerScrollBeta") and #actual ~= totalWatches and not warnedIncomplete then
         warnedIncomplete = true
         print("|cff73c9ffQuestHelper:|r Blizzard ha construido " .. nativeWatches .. "/" ..
-            totalWatches .. " misiones. Faltan filas nativas; /tqhdiag full conserva el detalle.")
+            totalWatches .. " misiones. El scroll solo recorre las filas nativas disponibles.")
     end
     if #actual == totalWatches then warnedIncomplete=false end
     local viewHeight = ns.NativeCapacity and ns.NativeCapacity.GetViewHeight(tracker)
@@ -625,7 +596,6 @@ local function render(tracker, fromNative)
         end
     end
     for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end
-    if ns.NativeCapacity and paging then ns.NativeCapacity.FitVisible(tracker, y) end
     scrollRows, scrollLast = paging and rows or nil, lastDrawn
     scrollIndex = startIndex
     local first = rows[startIndex]
@@ -650,11 +620,12 @@ refreshVisual = function(fromNative, origins)
     end
     local tracker = _G.QuestObjectiveTracker
     if tracker then
-        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, function(_, origins)
-            if type(origins)=="table" then
-                for source in pairs(origins) do scheduleVisual(true,source) end
-            else scheduleVisual(true,origins or "capacity.callback") end
-        end) end
+        -- Native layouts are the only automatic source of visual invalidation.
+        -- User actions reuse the data from the most recent native layout.
+        if fromNative then
+            cacheDirty=true
+            if next(searchCorpus) then searchCorpus={} end
+        end
         render(tracker, fromNative)
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
@@ -668,7 +639,7 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true,"native.EndLayout") end
+        if not unsafe() then scheduleVisual(true,"native."..method) end
     end)
     if ok then hooked = true end
 end
@@ -855,22 +826,19 @@ function Zones.Initialize()
     installHooks()
     makeSearch()
     configureWheel()
-    for _, name in ipairs({"PLAYER_ENTERING_WORLD", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED",
-        "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED"}) do
+    -- Login is bootstrap only; combat events are safety/restore boundaries.
+    -- No quest events here: Blizzard owns the timing of the native layout.
+    for _, name in ipairs({"PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED","PLAYER_REGEN_DISABLED"}) do
         pcall(eventFrame.RegisterEvent, eventFrame, name)
     end
     scheduleVisual(false,"init")
 end
 function Zones.RefreshAfterWatchSwap()
-    if ns.QuestState then ns.QuestState.Invalidate() end
-    -- El antiguo scrollKey apuntaba a una instantánea diferente de watches.
+    -- The explicit native turn-in filter may change watches. Only reset the
+    -- page; wait for Blizzard's EndLayout to render the resulting blocks.
     scrollIndex, scrollKey, scrollRows = 1, nil, nil
-    scheduleVisual(false,"filter.watch_swap")
-end
-function Zones.OnCapacityTripped()
-    -- Only capacity expansion is suspended. Keep the user's search, sort,
-    -- folds and page, and lay out the native blocks which still exist.
-    scheduleVisual(false,"capacity.trip")
+    cacheDirty=true
+    searchCorpus={}
 end
 function Zones.RefreshSettings(key)
     if key ~= "trackerSearchButton" and key ~= "trackerScrollBeta" and key ~= "trackerZoneSections" and key ~= "trackerSortMode" then return end
@@ -949,11 +917,16 @@ eventFrame:SetScript("OnEvent", function(_, event)
         hideHeadings()
         return
     end
-    -- Watch-list changes only change the visible selection, not zone metadata.
-    if event ~= "QUEST_WATCH_LIST_CHANGED" and event ~= "PLAYER_REGEN_ENABLED" then
-        cacheDirty = true
-        if searchQuery ~= "" or next(searchCorpus) then searchCorpus = {} end
+    if event == "PLAYER_ENTERING_WORLD" then
+        local wasHooked=hooked
+        cacheDirty=true
+        searchCorpus={}
+        installHooks(); makeSearch(); configureWheel()
+        -- Do not render again if the native hook is already installed.
+        if not wasHooked then scheduleVisual(false,"bootstrap") end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat can suppress a native callback. Restore presentation once.
+        installHooks()
+        if not unsafe() then scheduleVisual(true,"safety.combat_end") end
     end
-    if event == "PLAYER_ENTERING_WORLD" then installHooks(); makeSearch(); configureWheel() end
-    if not unsafe() then scheduleVisual(false,"event."..event) end
 end)

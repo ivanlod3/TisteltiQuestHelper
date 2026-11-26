@@ -134,14 +134,20 @@ end
 -- Settings callbacks are fired by the native interface. Keep an explicit
 -- dispatcher to apply changes immediately without a permanently running tick.
 function ns.RefreshSettings(key)
-    if ns.CoreRefreshSettings then ns.CoreRefreshSettings(key) end
-    if ns.QuestItems and ns.QuestItems.RefreshSettings then
-        ns.QuestItems.RefreshSettings(key)
+    -- Dispatch only to the feature owning the setting. Neither inventory nor
+    -- nameplate/macro settings can request a tracker layout.
+    if key=="trackerRecentEnabled" or key=="trackerRecentSeconds" then
+        if ns.RecentQuests and ns.RecentQuests.RefreshSettings then ns.RecentQuests.RefreshSettings(key) end
+    elseif key=="trackerSortMode" or key=="trackerZoneSections" or key=="trackerScrollBeta" or key=="trackerSearchButton" then
+        if ns.TrackerZones and ns.TrackerZones.RefreshSettings then ns.TrackerZones.RefreshSettings(key) end
+    elseif key=="markBags" or key=="markBaganator" or key=="itemTooltips" then
+        if ns.QuestItems and ns.QuestItems.RefreshSettings then ns.QuestItems.RefreshSettings(key) end
+        if ns.CoreRefreshSettings then ns.CoreRefreshSettings(key) end
+    elseif key=="autoMacro" or key=="nameplateIcons" then
+        if ns.CoreRefreshSettings then ns.CoreRefreshSettings(key) end
+    elseif key=="announceObjectives" or key=="announceQuests" or key=="announceLevels" then
+        if ns.AnnounceRefreshSettings then ns.AnnounceRefreshSettings(key) end
     end
-    if ns.AnnounceRefreshSettings then ns.AnnounceRefreshSettings(key) end
-    if ns.TrackerSort and ns.TrackerSort.RefreshSettings then ns.TrackerSort.RefreshSettings(key) end
-    if ns.TrackerZones and ns.TrackerZones.RefreshSettings then ns.TrackerZones.RefreshSettings(key) end
-    if ns.RecentQuests and ns.RecentQuests.RefreshSettings then ns.RecentQuests.RefreshSettings(key) end
 end
 
 local function inParty()

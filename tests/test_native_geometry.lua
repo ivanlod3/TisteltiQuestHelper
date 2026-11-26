@@ -2,6 +2,7 @@ local root=assert(arg[1])
 local mouseDown = false
 IsMouseButtonDown=function()return mouseDown end
 local frames, watchWrites, nativeCalls, combat = {}, 0, 0, false
+local registered={}
 local function node(kind,parent)
  local n={kind=kind,parent=parent,anchors={},width=240,height=28,shown=true,writes=0,scripts={}}
  function n:SetPoint(p,r,rp,x,y)
@@ -52,6 +53,7 @@ local function node(kind,parent)
  function n:CreateFontString()return node('font',self)end
  function n:CreateTexture()return node('texture',self)end
  for _,k in ipairs({'RegisterEvent','RegisterForClicks','SetFont','SetFontObject','SetJustifyH','SetWordWrap','SetNonSpaceWrap','SetMaxLines','SetHitRectInsets','SetTextColor','SetColorTexture','SetVertexColor','SetAtlas','SetTexture','SetAllPoints','SetMaxLetters','SetAutoFocus','unusedFocus'})do n[k]=function()end end
+ function n:RegisterEvent(event) registered[event]=true end
  frames[#frames+1]=n;return n
 end
 CreateFrame=function(kind,_,parent,template)
@@ -112,6 +114,7 @@ function tracker:Update()nativeCalls=nativeCalls+1 end
 _G.QuestObjectiveTracker=tracker
 local opts={trackerZoneSections=true,trackerScrollBeta=true,trackerSearchButton=true}
 local ns={Config={Get=function(k)return opts[k]end},TrackerSort={IsActive=function()return false end,Order=function(a)table.sort(a,function(x,y)return x.id<y.id end)end}}
+assert(loadfile(root..'/QuestHelper_NativeCapacity.lua'))('addon',ns)
 assert(loadfile(root..'/QuestHelper_TrackerZones.lua'))('addon',ns)
 local function upvalue(fn,key,seen)
  seen=seen or {};if seen[fn]then return end;seen[fn]=true
@@ -139,15 +142,13 @@ assert(math.abs(item:GetTop()-blocks[101]:GetTop())<1,
  'item independently anchored to contents did not follow its native quest')
 local state=ns.TrackerZones.GetDiagnosticState()
 assert(state.native==6 and #state.auxiliary==0)
-assert(not ns.TrackerZones.HasMissingNativeBlocks(tracker),"hidden native rows still count as built")
-blocks[106].used=false
-assert(ns.TrackerZones.HasMissingNativeBlocks(tracker),"missing row not detected")
-blocks[106].used=true
--- Simulate expansion rejection while native rows remain available.
-ns.NativeCapacity={IsTripped=function()return true end,Initialize=function()end,GetState=function()return {enabled=false}end,GetViewHeight=function()end,FitVisible=function()end}
-ns.TrackerZones.OnCapacityTripped()
-assert(#ns.TrackerZones.GetDiagnosticState().geometry>0,"capacity fallback disabled zones")
-ns.NativeCapacity=nil
+for event in pairs(registered) do assert(event=="PLAYER_ENTERING_WORLD" or event=="PLAYER_REGEN_ENABLED" or event=="PLAYER_REGEN_DISABLED","unexpected tracker subscription: "..event) end
+assert(not registered.QUEST_LOG_UPDATE and not registered.UNIT_QUEST_LOG_CHANGED)
+local writesBeforeSwap=blocks[101].writes
+ns.TrackerZones.RefreshAfterWatchSwap()
+assert(blocks[101].writes==writesBeforeSwap,"watch swap rendered before native layout")
+tracker:EndLayout()
+state=ns.TrackerZones.GetDiagnosticState()
 assert(state.geometry[1].y==37,'margen inicial nativo de 10 no conservado')
 for i=2,#state.geometry do local a,b=state.geometry[i-1],state.geometry[i];assert(b.y==a.y+a.height+10,'separacion nativa alterada')end
 assert(state.last<#ids+1,'paginacion no activada')
@@ -162,8 +163,10 @@ for step=1,10 do tracker.scripts.OnMouseWheel(tracker,1)end
 assert(ns.TrackerZones.GetDiagnosticState().index==1)
 -- Repetir EndLayout sin un nuevo AnchorBlock no debe contaminar el respaldo.
 local stableWrites=blocks[101].writes
+local h=tracker:GetHeight()
 for i=1,200 do tracker:EndLayout()end
 assert(blocks[101].writes==stableWrites,'layout estable vuelve a escribir anclajes')
+assert(tracker:GetHeight()==h,'se modifico altura nativa')
 checkGeometry();assert(positions[blocks[102]][1][2]==blocks[101])
 assert(positions[blocks[101]][1][5]==-10)
 -- Los anclajes laterales siguen respondiendo al ancho del padre.

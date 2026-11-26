@@ -7,7 +7,7 @@ The current interface and announcement text are in **Spanish**. Other game clien
 
 ## Features
 
-- Native quest tracker with collapsible zone headings, stable sorting and mouse-wheel paging.
+- Native quest tracker with collapsible zone headings, stable sorting and mouse-wheel paging over the rows Blizzard has constructed. No artificial tracker/container resizing or replacement quest rows.
 - Search with a clear/close button and an option to keep the filter when focus is lost.
 - Reversible ready-to-turn-in filter. An empty result preserves your tracking; turning in the last matching quest restores the previous selection.
 - Kill/loot objective icons and progress counters beside nameplates.

@@ -151,6 +151,9 @@ function Recent.RepaintRendered()
 end
 local function tryNativeHook()
     if nativeHooked then return end
+    -- In the complete addon TrackerZones owns the single post-layout hook.
+    -- Keep standalone fallback for clients where that hook is unavailable.
+    if ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent() then return end
     local module = _G.QuestObjectiveTracker
     if not module or type(hooksecurefunc) ~= "function" then return end
     -- EndLayout is the first reliable point at which the final pooled rows
@@ -387,7 +390,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
         requestScan(0.18)
     elseif event == "PLAYER_REGEN_ENABLED" then
         tryNativeHook()
-        Recent.RepaintRendered()
+        if not (ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent()) then Recent.RepaintRendered() end
         if baselineReady then requestScan(0.25) else initializeBaseline() end
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         if readable(a) and a == "player" then requestScan(0.18) end

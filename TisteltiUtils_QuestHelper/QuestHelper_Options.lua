@@ -421,8 +421,8 @@ local function registerOptions()
         "Con el campo vacío siempre se oculta.")
     checkbox("trackerScrollBeta", "Desplazamiento por misiones (experimental)",
         "La rueda recorre las misiones en el espacio del rastreador sin modificar " ..
-        "el seguimiento. Para las misiones descartadas por altura, crea filas " ..
-        "de reserva con tipografía de Blizzard. Experimental en Forever.")
+        "el seguimiento ni el tamaño del contenedor. Solo recorre las filas " ..
+        "originales que Blizzard ha construido. Experimental en Forever.")
     header(layout, "Avisos al grupo")
     checkbox("announceObjectives", "Anunciar objetivos completados",
         "Publica en PARTY los objetivos terminados; no se anuncia nada en solitario.")
