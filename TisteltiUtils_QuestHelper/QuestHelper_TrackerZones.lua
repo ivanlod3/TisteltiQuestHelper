@@ -359,13 +359,26 @@ function Zones.NeedsCapacity()
         (option("trackerZoneSections") or searchQuery ~= "" or
         (ns.TrackerSort and ns.TrackerSort.IsActive and ns.TrackerSort.IsActive()))
 end
+function Zones.HasMissingNativeBlocks(tracker)
+    if not tracker or unsafe() or safe(tracker.IsCollapsed,tracker)==true or
+        (tracker.parentContainer and safe(tracker.parentContainer.IsCollapsed,tracker.parentContainer)==true) then return false end
+    local count=safe(Q and Q.GetNumQuestWatches)
+    if type(count)~="number" or count<1 or count>100 then return false end
+    -- No expansion from incomplete or unreadable watch data. Hidden by our
+    -- pagination is still a valid native block: use ownership, not IsShown.
+    local missing=false
+    for i=1,count do
+        local id=safe(Q.GetQuestIDForQuestWatchIndex,i)
+        if type(id)~="number" or id<=0 then return false end
+        local b=safe(tracker.GetExistingBlock,tracker,id)
+        if not b or not readable(b.id) or b.id~=id or not readable(b.used) or b.used~=true then missing=true end
+    end
+    return missing
+end
 -- Reflow ONLY the blocks created by the native tracker on this layout pass.
 -- Unlike the 0.7.42-0.7.46 fallback modes, this never guesses a capacity
 -- from ContentsFrame:GetHeight() (which is the *used*, not available height),
 -- and it never leaves a header anchored to a discarded quest block.
-local function capacityFallback()
-    return option("trackerScrollBeta") and ns.NativeCapacity and ns.NativeCapacity.IsTripped and ns.NativeCapacity.IsTripped()
-end
 local function render(tracker, fromNative)
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
@@ -376,7 +389,7 @@ local function render(tracker, fromNative)
         scrollRows, lastGeometry = nil, {}
         return
     end
-    if conflictingTracker() or capacityFallback() then
+    if conflictingTracker() then
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil,1,nil,0,{}
@@ -646,7 +659,7 @@ refreshVisual = function(fromNative, origins)
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
-function Zones.HandlesRecent() return hooked and not capacityFallback() end
+function Zones.HandlesRecent() return hooked end
 local function installHooks()
     if hooked or type(hooksecurefunc) ~= "function" then return end
     local tracker = _G.QuestObjectiveTracker
@@ -655,16 +668,16 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() and not capacityFallback() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true,"native.EndLayout") end
+        if not unsafe() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true,"native.EndLayout") end
     end)
     if ok then hooked = true end
 end
 local function makeSearch()
     if searchButton then
-        searchButton:SetShown(option("trackerSearchButton") and not capacityFallback())
+        searchButton:SetShown(option("trackerSearchButton"))
         return
     end
-    if not option("trackerSearchButton") or unsafe() or capacityFallback() then return end
+    if not option("trackerSearchButton") or unsafe() then return end
     local tracker = _G.QuestObjectiveTracker
     local header = tracker and tracker.Header
     local minimize = header and header.MinimizeButton
@@ -855,17 +868,8 @@ function Zones.RefreshAfterWatchSwap()
     scheduleVisual(false,"filter.watch_swap")
 end
 function Zones.OnCapacityTripped()
-    if searchVisible and searchBox then
-        searchClosing,searchVisible=true,false
-        searchBox:ClearFocus()
-        searchBox:SetText("")
-        searchBox:Hide()
-        searchQuery,searchCorpus="",{}
-        local tracker=_G.QuestObjectiveTracker
-        if tracker and tracker.Header and tracker.Header.Text then tracker.Header.Text:Show() end
-        searchClosing=false
-    end
-    if searchButton then searchButton:Hide() end
+    -- Only capacity expansion is suspended. Keep the user's search, sort,
+    -- folds and page, and lay out the native blocks which still exist.
     scheduleVisual(false,"capacity.trip")
 end
 function Zones.RefreshSettings(key)

@@ -52,11 +52,19 @@ local function refreshAfterNative(source)
 end
 local BUILD_HEIGHT = 32768
 local clampInsets, writingClamp, appliedClamp
+-- The client returns float-rounded insets, particularly at large build heights.
+local function near(a,b)
+    if issecretvalue and (issecretvalue(a) or issecretvalue(b)) then return false end
+    return type(a)=="number" and type(b)=="number" and math.abs(a-b)<0.02
+end
 local function setClamp(extra)
     if not clampInsets then return false end
     local l,r,t,b = container:GetClampRectInsets()
     local wanted = clampInsets[4]+extra
-    if l==clampInsets[1] and r==clampInsets[2] and t==clampInsets[3] and b==wanted then return true end
+    if near(l,clampInsets[1]) and near(r,clampInsets[2]) and near(t,clampInsets[3]) and near(b,wanted) then
+        if extra~=0 then appliedClamp={clampInsets[1],clampInsets[2],clampInsets[3],wanted} end
+        return true
+    end
     if not permitWrite() then return false end
     count("layout.clamp.write")
     trace("clamp.write",b,wanted,clampInsets[4],extra)
@@ -83,6 +91,11 @@ local function wanted()
         and ns.TrackerZones and ns.TrackerZones.NeedsCapacity()
         and not inCombat()
         and not (C_Secrets and C_Secrets.ShouldAurasBeSecret and C_Secrets.ShouldAurasBeSecret())
+end
+local function missingNative()
+    local zones=ns.TrackerZones
+    if zones and zones.HasMissingNativeBlocks then return zones.HasMissingNativeBlocks(tracker)==true end
+    return false
 end
 local function otherModuleHeight()
     local total, count = 0, 0
@@ -125,7 +138,7 @@ trip = function()
     trace("capacity.trip",windowWrites,baseHeight,expandedHeight)
     C_Timer.After(0,function()
         restoreOwned()
-        print("|cff73c9ffQuestHelper:|r Scroll experimental suspendido: conflicto repetido de geometría. Desactiva el scroll experimental en opciones para recuperar zonas, orden y búsqueda sin ampliar el contenedor.")
+        print("|cff73c9ffQuestHelper:|r Ampliación experimental suspendida por conflicto de geometría. Se mantienen zonas, búsqueda, orden y scroll de las filas nativas disponibles.")
         if ns.TrackerZones and ns.TrackerZones.OnCapacityTripped then
             ns.TrackerZones.OnCapacityTripped()
         elseif callback then callback(false) end
@@ -139,6 +152,14 @@ function Capacity.Configure()
     enabled = activate == true
     reason = enabled and "native-container" or (inCombat() and "combat" or "disabled")
     if suspendedForModules then reason="other-modules-fill-viewport" end
+    -- Only expand when the native client is actually missing watched rows.
+    -- Keep ownership after a successful expansion; otherwise success itself
+    -- would immediately toggle the container back to its original size.
+    if enabled and not owned and not missingNative() then
+        enabled=false
+        reason="native-complete"
+        return
+    end
     if enabled then
         owned=true
         expandedHeight = math.max(baseHeight, BUILD_HEIGHT)
@@ -154,7 +175,12 @@ function Capacity.Initialize(target, refresh)
     if container then
         -- Do not reconfigure on each render. Only intent transitions, a real
         -- native resize, combat transitions or initial activation may do so.
-        if not initializing and not tripped and wanted() ~= lastWanted then Capacity.Configure() end
+        if not initializing and not tripped then
+            local intent=wanted()
+            if intent~=lastWanted or (intent and not owned and not suspendedForModules and reason=="native-complete" and missingNative()) then
+                Capacity.Configure()
+            end
+        end
         return
     end
     local parent = target and target.parentContainer
@@ -181,9 +207,9 @@ function Capacity.Initialize(target, refresh)
         trace("clamp.native",bottom,clampInsets[4],appliedClamp and appliedClamp[4])
         -- Some clients feed our already compensated inset back to the setter.
         -- Never use that as a new baseline and add BUILD_HEIGHT twice.
-        if appliedClamp and math.abs(bottom-appliedClamp[4])<0.01 then
+        if appliedClamp and near(bottom,appliedClamp[4]) then
             bottom=clampInsets[4]
-            if left==appliedClamp[1] and right==appliedClamp[2] and top==appliedClamp[3] then return end
+            if near(left,appliedClamp[1]) and near(right,appliedClamp[2]) and near(top,appliedClamp[3]) then return end
         end
         clampInsets = {left, right, top, bottom}
         if enabled and not tripped then setClamp(expandedHeight-baseHeight) end
@@ -193,14 +219,25 @@ function Capacity.Initialize(target, refresh)
     parent:HookScript("OnSizeChanged", function(self, _, h)
         if writing or restoring or self ~= container or not number(h) then return end
         if tripped then return end
+        -- Ignore delayed notifications of our own expansion or stale sizes.
+        if owned and near(h,expandedHeight) then count("layout.native.resize_own");return end
+        if not near(h,container:GetHeight()) then count("layout.native.resize_stale");return end
         count("layout.native.resize")
         trace("size.native",h,baseHeight,expandedHeight)
-        if h>=100 and h<=6000 and (not expandedHeight or math.abs(h-expandedHeight)>0.01) then
-            baseHeight=h
+        -- Forever resets 32768 -> original height on its next update. This
+        -- is a rejection, not a request to expand again. Stop after one reset.
+        if owned and enabled and near(h,baseHeight) and not near(h,expandedHeight) then
+            count("layout.native.expansion_rejected")
+            trace("capacity.rejected",h,expandedHeight)
+            trip()
+            return
         end
+        if h>=100 and h<=6000 then baseHeight=h end
         if enabled or suspendedForModules then
             Capacity.Configure()
             refreshAfterNative("native.OnSizeChanged")
+        elseif callback then
+            callback(false,"native.OnSizeChanged")
         end
     end)
     finishLayout = function(sources)
@@ -270,20 +307,30 @@ end
 function Capacity.HandlesNative() return enabled and container ~= nil end
 function Capacity.IsTripped() return tripped end
 function Capacity.GetViewHeight(target)
-    if not enabled or target ~= tracker or not baseHeight then return end
+    if target ~= tracker or not container or not baseHeight then return end
+    local available=enabled and baseHeight or container:GetHeight()
+    -- Never treat a pending/abandoned build height as the visible viewport.
+    if not number(available) or available<100 or available>6000 then return end
     local top = container.topModulePadding or 0
     local bottom = container.bottomModulePadding or 0
     local gap = container.moduleSpacing or 0
     if not number(top) or not number(bottom) or not number(gap) then return end
     local otherHeight, others=otherModuleHeight()
     if not otherHeight then return end
-    local remaining = baseHeight-top-bottom-otherHeight
+    local remaining = available-top-bottom-otherHeight
     local trackerTop, contentTop=tracker:GetTop(),tracker.ContentsFrame:GetTop()
     if not number(trackerTop) or not number(contentTop) then return end
     local inset=trackerTop-contentTop
     if not number(inset) or inset < 0 then return end
     -- Reservar el espacio de los otros modulos, incluidos los de prioridad.
-    return math.max(0, remaining-others*gap-inset), inset
+    local view=math.max(0,remaining-others*gap-inset)
+    -- Without owning geometry we must not overlap a neighbouring native module.
+    if not enabled and others>0 then
+        local h=tracker:GetHeight()
+        if not number(h) then return end
+        view=math.min(view,math.max(0,h-inset))
+    end
+    return view,inset
 end
 function Capacity.FitVisible(target, height)
     if not enabled or target ~= tracker or inCombat() then return end

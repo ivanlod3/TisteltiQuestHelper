@@ -139,6 +139,15 @@ assert(math.abs(item:GetTop()-blocks[101]:GetTop())<1,
  'item independently anchored to contents did not follow its native quest')
 local state=ns.TrackerZones.GetDiagnosticState()
 assert(state.native==6 and #state.auxiliary==0)
+assert(not ns.TrackerZones.HasMissingNativeBlocks(tracker),"hidden native rows still count as built")
+blocks[106].used=false
+assert(ns.TrackerZones.HasMissingNativeBlocks(tracker),"missing row not detected")
+blocks[106].used=true
+-- Simulate expansion rejection while native rows remain available.
+ns.NativeCapacity={IsTripped=function()return true end,Initialize=function()end,GetState=function()return {enabled=false}end,GetViewHeight=function()end,FitVisible=function()end}
+ns.TrackerZones.OnCapacityTripped()
+assert(#ns.TrackerZones.GetDiagnosticState().geometry>0,"capacity fallback disabled zones")
+ns.NativeCapacity=nil
 assert(state.geometry[1].y==37,'margen inicial nativo de 10 no conservado')
 for i=2,#state.geometry do local a,b=state.geometry[i-1],state.geometry[i];assert(b.y==a.y+a.height+10,'separacion nativa alterada')end
 assert(state.last<#ids+1,'paginacion no activada')
