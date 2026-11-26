@@ -42,7 +42,7 @@ function Perf.BuildReport()
     if ns.TrackerZones and ns.TrackerZones.GetDiagnosticState then
         local ok,state=pcall(ns.TrackerZones.GetDiagnosticState)
         if ok and type(state)=="table" then
-            for _,key in ipairs({"native","watches","index","last","rows"}) do append("tracker."..key,state[key]) end
+            for _,key in ipairs({"native","watches","index","last","rows","viewport","contentHeight"}) do append("tracker."..key,state[key]) end
         end
     end
     out[#out+1]="\nCOUNTERS (count | rate/sec; merged origins are not mutually exclusive)"

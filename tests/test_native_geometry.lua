@@ -161,6 +161,32 @@ end
 for _,id in ipairs(ids)do assert(observed[id],'mision nativa inaccesible por scroll')end
 for step=1,10 do tracker.scripts.OnMouseWheel(tracker,1)end
 assert(ns.TrackerZones.GetDiagnosticState().index==1)
+-- Wheel off must never disable the viewport boundary. Buttons keep all
+-- native rows reachable even when the wheel preference is off.
+opts.trackerScrollBeta=false
+ns.TrackerZones.RefreshSettings("trackerScrollBeta")
+local pager=assert(upvalue(ns.TrackerZones.Initialize,"pager"))
+assert(pager.frame:IsShown(),"overflow navigation missing with wheel disabled")
+local seen={}
+for step=1,12 do
+ local current=ns.TrackerZones.GetDiagnosticState()
+ for _,r in ipairs(current.geometry)do
+  assert(r.y+r.height<=current.viewport-22,"quest overflows viewport with wheel disabled")
+  seen[r.id]=true
+ end
+ pager.next.scripts.OnClick()
+end
+for _,id in ipairs(ids)do assert(seen[id],"unreachable native row without wheel")end
+for step=1,12 do pager.prev.scripts.OnClick()end
+local foldHeadings=assert(upvalue(ns.TrackerZones.Initialize,"headings"))
+for i=1,6 do
+ foldHeadings[1].frame.scripts.OnClick()
+ local current=ns.TrackerZones.GetDiagnosticState()
+ for _,r in ipairs(current.geometry)do assert(r.y+r.height<=current.viewport,"fold overflow")end
+end
+assert(pager.frame:IsShown(),"unfold did not restore overflow navigation")
+opts.trackerScrollBeta=true
+ns.TrackerZones.RefreshSettings("trackerScrollBeta")
 -- Repetir EndLayout sin un nuevo AnchorBlock no debe contaminar el respaldo.
 local stableWrites=blocks[101].writes
 local h=tracker:GetHeight()

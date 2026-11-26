@@ -7,6 +7,7 @@ ns.TrackerZones = Zones
 
 local eventFrame = CreateFrame("Frame")
 local headings = {}
+local pager, lastViewport, lastContentHeight
 local positions = setmetatable({}, { __mode = "k" })
 local hiddenByUs = setmetatable({}, { __mode = "k" })
 local zoneByID = {}
@@ -232,8 +233,55 @@ local function restorePosition(block)
 end
 local function hideHeadings()
     for _, head in ipairs(headings) do if safe(head.frame.IsShown,head.frame) == true then head.frame:Hide() end end
+    if pager and safe(pager.frame.IsShown,pager.frame)==true then pager.frame:Hide() end
 end
 local refreshVisual, scheduleVisual -- forward references for UI and native hooks
+local PAGER_HEIGHT=22
+local function updatePager(content,view,needed,first,last,total)
+    if not needed then
+        if pager and safe(pager.frame.IsShown,pager.frame)==true then pager.frame:Hide() end
+        return
+    end
+    if not pager then
+        local frame=CreateFrame("Frame",nil,content)
+        frame:SetHeight(PAGER_HEIGHT)
+        local label=frame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+        label:SetPoint("CENTER",frame,"CENTER",0,0)
+        local function button(x,text,step)
+            local b=CreateFrame("Button",nil,frame)
+            b:SetSize(30,PAGER_HEIGHT)
+            b:SetPoint("CENTER",frame,"CENTER",x,0)
+            local font=b:CreateFontString(nil,"OVERLAY","GameFontNormal")
+            font:SetPoint("CENTER",b,"CENTER",0,0)
+            font:SetText(text)
+            b:SetScript("OnClick",function()
+                if unsafe() or not scrollRows then return end
+                if step<0 and scrollIndex<=1 or step>0 and scrollLast>=#scrollRows then return end
+                scrollIndex=math.max(1,math.min(#scrollRows,scrollIndex+step))
+                scrollKey=nil
+                refreshVisual(false,step<0 and "ui.page.prev" or "ui.page.next")
+            end)
+            return b,font
+        end
+        local prev,pf=button(-67,"<",-1)
+        local next,nf=button(67,">",1)
+        pager={frame=frame,label=label,prev=prev,next=next,pf=pf,nf=nf}
+    end
+    local width=safe(content.GetWidth,content) or 200
+    local y=-(view-PAGER_HEIGHT)
+    local anchors={{"TOPLEFT",content,"TOPLEFT",0,y}}
+    if not samePosition(readPosition(pager.frame),anchors) then
+        pager.frame:ClearAllPoints();pager.frame:SetPoint("TOPLEFT",content,"TOPLEFT",0,y)
+    end
+    if safe(pager.frame.GetWidth,pager.frame)~=width then pager.frame:SetWidth(width) end
+    local label=first.."-"..last.." / "..total
+    if pager.lastLabel~=label then pager.label:SetText(label);pager.lastLabel=label end
+    local prev=first>1
+    local next=last<total
+    if pager.prevActive~=prev then pager.pf:SetTextColor(prev and 1 or .45,prev and .82 or .45,prev and .15 or .45);pager.prevActive=prev end
+    if pager.nextActive~=next then pager.nf:SetTextColor(next and 1 or .45,next and .82 or .45,next and .15 or .45);pager.nextActive=next end
+    if safe(pager.frame.IsShown,pager.frame)~=true then pager.frame:Show() end
+end
 -- Las zonas toman la tipografia y color del titulo nativo "Misiones".
 -- Solo afecta a elementos creados por el addon.
 local function headingFont(text)
@@ -452,7 +500,7 @@ local function render(tracker, fromNative)
     end
 
     -- Solo se cuentan bloques existentes, usados y con el mismo ID.
-    local paging = option("trackerScrollBeta") and #actual > 0
+    local paging = false
     if fromNative and option("trackerScrollBeta") and #actual ~= totalWatches and not warnedIncomplete then
         warnedIncomplete = true
         print("|cff73c9ffQuestHelper:|r Blizzard ha construido " .. nativeWatches .. "/" ..
@@ -460,7 +508,7 @@ local function render(tracker, fromNative)
     end
     if #actual == totalWatches then warnedIncomplete=false end
     local viewHeight = ns.NativeCapacity and ns.NativeCapacity.GetViewHeight(tracker)
-    if paging and viewHeight == nil then
+    if viewHeight == nil then
         -- availableHeight es solo lectura; nunca se escribe en Edit Mode.
         local candidate = readable(tracker.availableHeight) and tracker.availableHeight
         if type(candidate) == "number" and candidate > 40 and candidate < 3000 then
@@ -478,19 +526,20 @@ local function render(tracker, fromNative)
                 viewHeight = overall - (type(headerHeight) == "number" and headerHeight or 28) - 10
             end
         end
-        if not viewHeight then paging = false end
     end
+    -- All custom layouts must fit, even with the wheel option disabled.
+    -- Without a trustworthy viewport, restore the original native geometry.
+    if type(viewHeight)~="number" or viewHeight<=0 then
+        hideHeadings()
+        for block in pairs(positions) do restorePosition(block) end
+        scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+        lastViewport,lastContentHeight=nil,nil
+        applying=false
+        if ns.Perf then ns.Perf.Count("layout.viewport.unknown") end
+        return
+    end
+    lastViewport=viewHeight
     local startIndex = 1
-    if paging and #rows > 1 then
-        startIndex = math.min(math.max(scrollIndex, 1), #rows)
-        if scrollKey then
-            for i, row in ipairs(rows) do
-                local key = row.type == "heading" and "zone:" .. row.zone
-                    or "quest:" .. tostring(row.entry.id)
-                if key == scrollKey then startIndex = i; break end
-            end
-        end
-    end
     local contentWidth = safe(content.GetWidth, content) or 235
     local questGap = readable(tracker.fromBlockOffsetY) and tracker.fromBlockOffsetY
     questGap = type(questGap) == "number" and math.max(0, -questGap) or 10
@@ -512,6 +561,51 @@ local function render(tracker, fromNative)
             end
         end
     end
+    -- Measure the complete presentation before placing any custom rows.
+    local needed, seenHeadings=y,0
+    for _,row in ipairs(rows) do
+        if row.type=="heading" then
+            needed=needed+HEADER_HEIGHT+HEADER_BOTTOM_GAP+(seenHeadings==0 and 0 or HEADER_TOP_GAP)
+            seenHeadings=seenHeadings+1
+        else
+            local rect=nativeRects[row.entry.block]
+            needed=needed+rect.height+questGap
+        end
+    end
+    lastContentHeight=needed
+    paging=needed>viewHeight
+    local fullView=viewHeight
+    -- Always expose explicit navigation when content overflows, independent
+    -- of the optional mouse-wheel binding.
+    if paging then viewHeight=viewHeight-PAGER_HEIGHT-4 end
+    -- A single native row taller than the available page cannot be safely
+    -- split. Fall back to Blizzard instead of hiding an inaccessible quest.
+    if paging then
+        for _,row in ipairs(rows) do
+            if row.type=="quest" then
+                local h=nativeRects[row.entry.block].height+questGap
+                if y+h+(wantZones and HEADER_HEIGHT+HEADER_BOTTOM_GAP+HEADER_TOP_GAP or 0)>viewHeight then
+                    hideHeadings()
+                    for block in pairs(positions) do restorePosition(block) end
+                    scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+                    applying=false
+                    if ns.Perf then ns.Perf.Count("layout.viewport.row_too_tall") end
+                    return
+                end
+            end
+        end
+    end
+    if paging and #rows > 1 then
+        startIndex = math.min(math.max(scrollIndex, 1), #rows)
+        if scrollKey then
+            for i, row in ipairs(rows) do
+                local key = row.type == "heading" and "zone:" .. row.zone
+                    or "quest:" .. tostring(row.entry.id)
+                if key == scrollKey then startIndex = i; break end
+            end
+        end
+    end
+    lastDrawn=startIndex-1
     -- Cuando empieza una pagina a mitad de zona, mostrar su encabezado
     -- sin repetirlo dentro de la misma pagina.
     local previousZone
@@ -601,6 +695,11 @@ local function render(tracker, fromNative)
     local first = rows[startIndex]
     scrollKey = paging and first and (first.type == "heading" and "zone:" .. first.zone
         or "quest:" .. tostring(first.entry.id)) or nil
+    updatePager(content,fullView,paging,startIndex,lastDrawn,#rows)
+    if ns.Perf then
+        if paging then ns.Perf.Count("layout.viewport.overflow") end
+        if ns.Perf.Trace then ns.Perf.Trace("viewport",fullView,needed,#rows,lastDrawn) end
+    end
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
@@ -902,6 +1001,7 @@ function Zones.GetDiagnosticState()
     return {index=scrollIndex, last=scrollLast, rows=scrollRows and #scrollRows or 0,
         key=scrollKey, query=searchQuery, native=nativeWatches, watches=totalWatches,
         auxiliary=auxiliary, geometry=geometry, collapsed=collapsed,
+        viewport=lastViewport, contentHeight=lastContentHeight,
         capacity=ns.NativeCapacity and ns.NativeCapacity.GetState()}
 end
 function Zones.Debug()
