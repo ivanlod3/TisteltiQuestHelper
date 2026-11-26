@@ -25,3 +25,17 @@ assert(Q.GetQuestObjectives(1)[1].numFulfilled==3 and calls==4)
 combat=false;frame.event(frame,"PLAYER_REGEN_ENABLED")
 assert(Q.GetQuestObjectives(1)[1].numFulfilled==3 and calls==5)
 assert(ns.Perf.Snapshot()["journal.hit.GetQuestObjectives"]==2)
+
+local perf=ns.Perf
+perf.Report(true)
+for i=1,120 do perf.Trace("test",i) end
+local report=perf.BuildReport()
+assert(report:find("TQHPERF/2",1,true))
+assert(report:find("layout.render: 0",1,true))
+assert(report:find("intermediate entries omitted",1,true))
+assert(report:find("#1 test",1,true) and report:find("#120 test",1,true))
+assert(not report:find("#40 test",1,true))
+local copied
+ns.Diagnostics={ShowReport=function(value)copied=value end}
+perf.Report(false)
+assert(copied==report,"report not routed to copy window")

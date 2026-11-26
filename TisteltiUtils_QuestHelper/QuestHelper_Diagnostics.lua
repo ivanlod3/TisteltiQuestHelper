@@ -207,9 +207,10 @@ local function installHooks()
     hooked[tracker] = true
 end
 local panel, edit, pageLabel, pages, page = nil, nil, nil, {}, 1
+local reportTitle = "Diagnóstico QuestHelper"
 local function showPage()
     edit:SetText(pages[page] or "")
-    pageLabel:SetText("Diagnóstico QuestHelper — " .. page .. "/" .. #pages .. " — Ctrl+C para copiar")
+    pageLabel:SetText(reportTitle .. " — " .. page .. "/" .. #pages .. " — Ctrl+A / Ctrl+C")
     panel:Show(); edit:SetFocus(); edit:HighlightText()
 end
 local function compactSummary()
@@ -277,7 +278,7 @@ local function compactSummary()
     for _, issue in ipairs(sorted) do out[#out+1] = issue end
     return table.concat(out, "\n")
 end
-local function export(raw, compact)
+local function ensurePanel()
     if not panel then
         panel = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         panel:SetSize(780, 520); panel:SetPoint("CENTER"); panel:SetFrameStrata("DIALOG")
@@ -297,8 +298,20 @@ local function export(raw, compact)
         end
         button("Anterior",16,function() page=math.max(1,page-1); showPage() end)
         button("Siguiente",151,function() page=math.min(#pages,page+1); showPage() end)
+        button("Seleccionar todo",286,function() edit:SetFocus();edit:HighlightText() end)
         button("Cerrar",626,function() panel:Hide() end)
+        panel:SetScript("OnHide",function() edit:ClearFocus() end)
     end
+end
+function D.ShowReport(report,title)
+    ensurePanel()
+    reportTitle=title or "Diagnóstico QuestHelper"
+    pages,page={report},1
+    showPage()
+end
+local function export(raw, compact)
+    ensurePanel()
+    reportTitle="Diagnóstico QuestHelper"
     local version, build = "?", "?"
     if GetBuildInfo then version, build = GetBuildInfo() end
     local header = "TQHDIAG/1 addon=0.7.53 client=" .. text(version) .. " build=" .. text(build)

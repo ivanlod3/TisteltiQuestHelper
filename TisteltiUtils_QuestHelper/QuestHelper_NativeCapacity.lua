@@ -15,6 +15,9 @@ local windowStart, windowWrites = nil, 0
 local function count(key)
     if ns.Perf then ns.Perf.Count(key) end
 end
+local function trace(kind,a,b,c,d)
+    if ns.Perf and ns.Perf.Trace then ns.Perf.Trace(kind,a,b,c,d) end
+end
 -- The native client can reset the module height and clamp asynchronously.
 -- Never keep fighting it: fail closed for the session instead of polling.
 local function permitWrite()
@@ -32,12 +35,19 @@ end
 local suspendedForModules = false
 local reported, reportPending = false, false
 local initializing, refreshPending, finishLayout = false, false, nil
-local function refreshAfterNative()
-    if tripped or (not enabled and not suspendedForModules) or refreshPending then return end
+local pendingSources={}
+local function refreshAfterNative(source)
+    if tripped or (not enabled and not suspendedForModules) then return end
+    source=source or "capacity.unknown"
+    count("capacity.request."..source)
+    pendingSources[source]=true
+    if refreshPending then return end
     refreshPending=true
-    C_Timer.After(0, function()
+    C_Timer.After(0,function()
         refreshPending=false
-        if not tripped and finishLayout then finishLayout() end
+        local sources=pendingSources
+        pendingSources={}
+        if not tripped and finishLayout then finishLayout(sources) end
     end)
 end
 local BUILD_HEIGHT = 32768
@@ -49,6 +59,7 @@ local function setClamp(extra)
     if l==clampInsets[1] and r==clampInsets[2] and t==clampInsets[3] and b==wanted then return true end
     if not permitWrite() then return false end
     count("layout.clamp.write")
+    trace("clamp.write",b,wanted,clampInsets[4],extra)
     writingClamp = true
     local ok = pcall(container.SetClampRectInsets, container,
         clampInsets[1], clampInsets[2], clampInsets[3], wanted)
@@ -90,6 +101,7 @@ local function setHeight(frame, height)
     if not permitWrite() then return false end
     count("layout.height.write")
     count(frame==container and "layout.height.container" or "layout.height.tracker")
+    trace("height.write",frame==container and "container" or "tracker",frame:GetHeight(),height,reason)
     writing = true
     local ok = pcall(frame.SetHeight, frame, height)
     writing = false
@@ -110,6 +122,7 @@ trip = function()
     tripped, enabled, suspendedForModules = true,false,false
     reason="geometry-feedback"
     count("layout.circuit_breaker")
+    trace("capacity.trip",windowWrites,baseHeight,expandedHeight)
     C_Timer.After(0,function()
         restoreOwned()
         print("|cff73c9ffQuestHelper:|r Scroll experimental suspendido: conflicto repetido de geometría. Desactiva el scroll experimental en opciones para recuperar zonas, orden y búsqueda sin ampliar el contenedor.")
@@ -164,6 +177,8 @@ function Capacity.Initialize(target, refresh)
     hooksecurefunc(parent, "SetClampRectInsets", function(self, left, right, top, bottom)
         if writingClamp or restoring or self ~= container then return end
         if not number(left) or not number(right) or not number(top) or not number(bottom) then return end
+        count("layout.native.clamp")
+        trace("clamp.native",bottom,clampInsets[4],appliedClamp and appliedClamp[4])
         -- Some clients feed our already compensated inset back to the setter.
         -- Never use that as a new baseline and add BUILD_HEIGHT twice.
         if appliedClamp and math.abs(bottom-appliedClamp[4])<0.01 then
@@ -178,15 +193,17 @@ function Capacity.Initialize(target, refresh)
     parent:HookScript("OnSizeChanged", function(self, _, h)
         if writing or restoring or self ~= container or not number(h) then return end
         if tripped then return end
+        count("layout.native.resize")
+        trace("size.native",h,baseHeight,expandedHeight)
         if h>=100 and h<=6000 and (not expandedHeight or math.abs(h-expandedHeight)>0.01) then
             baseHeight=h
         end
         if enabled or suspendedForModules then
             Capacity.Configure()
-            refreshAfterNative()
+            refreshAfterNative("native.OnSizeChanged")
         end
     end)
-    finishLayout = function()
+    finishLayout = function(sources)
         -- Aqui ya se conocen tambien los modulos posteriores al de misiones.
         if enabled and not inCombat() then
             local view=Capacity.GetViewHeight(tracker)
@@ -196,10 +213,10 @@ function Capacity.Initialize(target, refresh)
             if view and view < 100 and otherModuleHeight()>0 then
                 suspendedForModules=true
                 Capacity.Configure()
-                if callback then callback(false) end
+                if callback then callback(false,"capacity.suspend_modules") end
                 return
             end
-            if callback then callback(false) end
+            if callback then callback(false,sources) end
 
         elseif suspendedForModules and not inCombat() then
             Capacity.Configure()
@@ -207,13 +224,13 @@ function Capacity.Initialize(target, refresh)
     end
     hooksecurefunc(parent, "Update", function()
         if enabled then count("layout.native.container") end
-        refreshAfterNative()
+        refreshAfterNative("native.container.Update")
     end)
     -- dirtyCallback conserva una referencia previa a parent.Update. El
     -- modulo se invoca tambien en ese recorrido, incluso si omite EndLayout.
     hooksecurefunc(target, "Update", function()
         if enabled then count("layout.native.tracker") end
-        refreshAfterNative()
+        refreshAfterNative("native.tracker.Update")
     end)
     for _, event in ipairs({"PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED"}) do
         events:RegisterEvent(event)
@@ -224,14 +241,14 @@ function Capacity.Initialize(target, refresh)
     C_Timer.After(0, function()
         initializing=false
         Capacity.Configure()
-        refreshAfterNative()
+        refreshAfterNative("capacity.initial")
         if not reported and not reportPending and C_Timer and C_Timer.After then
             reportPending=true
             C_Timer.After(1, function()
                 reportPending=false
                 if not enabled or inCombat() then return end
                 reported=true
-                if callback then callback(false) end
+                if callback then callback(false,"capacity.initial_report") end
                 local state=ns.TrackerZones.GetDiagnosticState()
                 local insecure={}
                 if type(issecurevariable)=="function" then
@@ -275,12 +292,14 @@ function Capacity.FitVisible(target, height)
 end
 function Capacity.GetState()
     return {enabled=enabled, reason=reason, base=baseHeight,
-        expanded=container and container:GetHeight(), view=tracker and Capacity.GetViewHeight(tracker)}
+        expanded=container and container:GetHeight(), view=tracker and Capacity.GetViewHeight(tracker),
+        trackerHeight=tracker and tracker:GetHeight(),clampBottom=container and select(4,container:GetClampRectInsets()),
+        baselineBottom=clampInsets and clampInsets[4],tripped=tripped}
 end
-events:SetScript("OnEvent", function()
+events:SetScript("OnEvent", function(_,event)
     -- En combate solo se restaura la dimension del contenedor NO protegido.
     -- Su propio evento reconstruye el layout normal; no se llama a Update.
     if tripped then return end
     Capacity.Configure()
-    if not inCombat() and callback then callback(false) end
+    if not inCombat() and callback then callback(false,"capacity."..tostring(event)) end
 end)

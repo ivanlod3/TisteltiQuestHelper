@@ -291,7 +291,7 @@ local function heading(parent, index)
         if unsafe() or not record.zone then return end
         local current = folded()
         current[record.zone] = not current[record.zone] or nil
-        refreshVisual(false)
+        refreshVisual(false, "ui.fold")
     end)
     button:Hide()
     return record
@@ -621,11 +621,27 @@ local function render(tracker, fromNative)
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
-refreshVisual = function(fromNative)
+refreshVisual = function(fromNative, origins)
     if applying or unsafe() then return end
+    if ns.Perf then
+        ns.Perf.Count("layout.render.attempt")
+        if type(origins)=="string" then
+            ns.Perf.Count("render.source."..origins)
+            ns.Perf.Trace("render",origins)
+        elseif type(origins)=="table" then
+            local labels={}
+            for source in pairs(origins) do ns.Perf.Count("render.source."..source);labels[#labels+1]=source end
+            table.sort(labels)
+            ns.Perf.Trace("render",table.concat(labels,","))
+        else ns.Perf.Count("render.source.unknown") end
+    end
     local tracker = _G.QuestObjectiveTracker
     if tracker then
-        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, function() scheduleVisual(true) end) end
+        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, function(_, origins)
+            if type(origins)=="table" then
+                for source in pairs(origins) do scheduleVisual(true,source) end
+            else scheduleVisual(true,origins or "capacity.callback") end
+        end) end
         render(tracker, fromNative)
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
@@ -639,7 +655,7 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() and not capacityFallback() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true) end
+        if not unsafe() and not capacityFallback() and not (ns.NativeCapacity and ns.NativeCapacity.HandlesNative and ns.NativeCapacity.HandlesNative()) then scheduleVisual(true,"native.EndLayout") end
     end)
     if ok then hooked = true end
 end
@@ -679,7 +695,7 @@ local function makeSearch()
         header.Text:Show()
         searchQuery, searchCorpus = "", {}
         searchClosing = false
-        refreshVisual(false)
+        refreshVisual(false, "ui.search.close")
     end
     -- Conservar el manejador de la plantilla: actualiza Buscar, la lupa y
     -- el boton de borrado antes de aplicar nuestro filtro.
@@ -688,7 +704,7 @@ local function makeSearch()
         local value = lower((self:GetText() or ""):match("^%s*(.-)%s*$"))
         if value ~= searchQuery then
             searchQuery = value
-            refreshVisual(false)
+            refreshVisual(false, "ui.search.text")
         end
         -- El clic en borrar puede quitar el foco antes de vaciar el campo.
         -- En ese orden no llega un segundo OnEditFocusLost.
@@ -788,7 +804,7 @@ local function configureWheel()
         if index < 1 or index > #scrollRows then return end
         if step > 0 and scrollLast >= #scrollRows then return end
         scrollIndex, scrollKey = index, nil
-        refreshVisual(false)
+        refreshVisual(false, "ui.wheel")
     end)
     if ok then
         wheelHooked,wheelTracker=true,target
@@ -797,9 +813,12 @@ local function configureWheel()
     end
 end
 
-local scheduled, pendingNative = false, false
-scheduleVisual = function(fromNative)
+local scheduled, pendingNative, pendingSources = false, false, {}
+scheduleVisual = function(fromNative, source)
     if unsafe() then return end
+    source=source or "unknown"
+    if ns.Perf then ns.Perf.Count("request.source."..source) end
+    pendingSources[source]=true
     pendingNative = pendingNative or fromNative == true
     if scheduled then
         if ns.Perf then ns.Perf.Count("layout.coalesced") end
@@ -807,12 +826,12 @@ scheduleVisual = function(fromNative)
     end
     local function flush()
         scheduled = false
-        local native = pendingNative
-        pendingNative = false
+        local native, sources = pendingNative,pendingSources
+        pendingNative,pendingSources = false,{}
         if unsafe() then return end
         installHooks()
         if not wheelHooked then configureWheel() end
-        refreshVisual(native)
+        refreshVisual(native,sources)
     end
     if C_Timer and type(C_Timer.After) == "function" then
         scheduled = true
@@ -827,13 +846,13 @@ function Zones.Initialize()
         "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED"}) do
         pcall(eventFrame.RegisterEvent, eventFrame, name)
     end
-    scheduleVisual()
+    scheduleVisual(false,"init")
 end
 function Zones.RefreshAfterWatchSwap()
     if ns.QuestState then ns.QuestState.Invalidate() end
     -- El antiguo scrollKey apuntaba a una instantánea diferente de watches.
     scrollIndex, scrollKey, scrollRows = 1, nil, nil
-    scheduleVisual()
+    scheduleVisual(false,"filter.watch_swap")
 end
 function Zones.OnCapacityTripped()
     if searchVisible and searchBox then
@@ -847,7 +866,7 @@ function Zones.OnCapacityTripped()
         searchClosing=false
     end
     if searchButton then searchButton:Hide() end
-    scheduleVisual()
+    scheduleVisual(false,"capacity.trip")
 end
 function Zones.RefreshSettings(key)
     if key ~= "trackerSearchButton" and key ~= "trackerScrollBeta" and key ~= "trackerZoneSections" and key ~= "trackerSortMode" then return end
@@ -866,7 +885,7 @@ function Zones.RefreshSettings(key)
         configureWheel()
         makeSearch()
     end
-    scheduleVisual()
+    scheduleVisual(false,"setting."..key)
 end
 -- Diagnóstico a demanda: permite distinguir en el juego si Blizzard
 -- está entregando un bloque real o una fila auxiliar para cada questID.
@@ -932,5 +951,5 @@ eventFrame:SetScript("OnEvent", function(_, event)
         if searchQuery ~= "" or next(searchCorpus) then searchCorpus = {} end
     end
     if event == "PLAYER_ENTERING_WORLD" then installHooks(); makeSearch(); configureWheel() end
-    if not unsafe() then scheduleVisual() end
+    if not unsafe() then scheduleVisual(false,"event."..event) end
 end)
