@@ -12,7 +12,7 @@ _G.QuestObjectiveTracker=tracker
 local ns={}
 assert(loadfile(root.."/QuestHelper_NativeCapacity.lua"))("addon",ns)
 local view=ns.NativeCapacity
-assert(view.GetViewHeight(tracker)==727)
+assert(view.GetViewHeight(tracker)==675,"visible area is the actual native height")
 assert(view.GetState().reason=="native-read-only" and view.GetState().base==791)
 parent.modules={tracker,{IsDisplayable=function()return true end}}
 assert(view.GetViewHeight(tracker)==675,"must respect allocated quest module height")

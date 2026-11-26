@@ -19,20 +19,10 @@ function View.GetViewHeight(tracker)
     if not number(inset) or inset<0 then return end
     local available=tracker.availableHeight
     local height=safe(tracker.GetHeight,tracker)
+    if not number(height) or height<=inset or height>6000 then return end
     if not number(available) or available<=inset or available>6000 then available=height end
-    if not number(available) or available<=inset or available>6000 then return end
-    -- With another displayable module, do not use space outside the native
-    -- quest module's allocation, even if its pre-layout availableHeight is larger.
-    local parent=tracker.parentContainer
-    if parent and type(parent.modules)=="table" then
-        for _,module in ipairs(parent.modules) do
-            if module~=tracker and safe(module.IsDisplayable,module)==true then
-                if not number(height) or height<=inset then return end
-                available=math.min(available,height)
-                break
-            end
-        end
-    end
+    -- The visible frame must never exceed its actual native allocation.
+    available=math.min(available,height)
     return math.max(0,available-inset),inset
 end
 function View.GetState()

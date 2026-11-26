@@ -23,7 +23,8 @@ def build():
         assert (ADDON/name).is_file() and not (ADDON/name).is_symlink(), name
     assert (ADDON/'LICENSE.txt').read_bytes() == (ROOT/'LICENSE').read_bytes()
     assert ('addon=' + version) in (ADDON/'QuestHelper_Diagnostics.lua').read_text()
-    assert ('QuestHelper ' + version + ':') in (ADDON/'QuestHelper_NativeCapacity.lua').read_text()
+    # NativeCapacity is a read-only viewport; no independent version/banner.
+    assert 'function View.GetViewHeight' in (ADDON/'QuestHelper_NativeCapacity.lua').read_text()
     output = ROOT/'dist'; output.mkdir(exist_ok=True)
     def archive(path, entries):
         with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=9) as zip_file:

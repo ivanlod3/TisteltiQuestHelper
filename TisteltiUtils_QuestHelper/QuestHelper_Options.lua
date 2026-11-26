@@ -419,10 +419,6 @@ local function registerOptions()
         "Si hay texto, conserva el campo visible y el filtro al pulsar fuera. " ..
         "Si está desactivado, se cierran y limpian al perder el foco. " ..
         "Con el campo vacío siempre se oculta.")
-    checkbox("trackerScrollBeta", "Desplazamiento por misiones (experimental)",
-        "La rueda recorre las misiones en el espacio del rastreador sin modificar " ..
-        "el seguimiento ni el tamaño del contenedor. Solo recorre las filas " ..
-        "originales que Blizzard ha construido. Experimental en Forever.")
     header(layout, "Avisos al grupo")
     checkbox("announceObjectives", "Anunciar objetivos completados",
         "Publica en PARTY los objetivos terminados; no se anuncia nada en solitario.")

@@ -31,3 +31,6 @@ The beta.4 report showed 29,425 renders and 39,298 height writes in 617 seconds.
 
 ### Bounded presentation with wheel disabled
 The native viewport is mandatory for all custom layouts, including fold/unfold with trackerScrollBeta=false. Overflow activates a compact previous/next control; the option only controls the mouse wheel. No native height or clamp writes. If a single row cannot fit or the viewport is unreadable, restore Blizzard's original presentation. Regression covers repeated folding and access to all existing rows with the wheel disabled.
+
+### Automatic overflow wheel
+The visible area is bounded by the actual native module height. Overflow automatically enables whole-row wheel navigation, even with legacy trackerScrollBeta=false. When content fits, restore prior wheel state. No pager when the wheel is available; previous/next remains a fallback only for protected/occupied wheel targets. No native dimensions, reparenting or watch changes. Regression covers wheel on/off legacy preferences, all rows reachable, and repeated fold/unfold.

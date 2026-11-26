@@ -161,30 +161,31 @@ end
 for _,id in ipairs(ids)do assert(observed[id],'mision nativa inaccesible por scroll')end
 for step=1,10 do tracker.scripts.OnMouseWheel(tracker,1)end
 assert(ns.TrackerZones.GetDiagnosticState().index==1)
--- Wheel off must never disable the viewport boundary. Buttons keep all
--- native rows reachable even when the wheel preference is off.
+-- A saved legacy scroll=false value must not disable overflow scrolling.
 opts.trackerScrollBeta=false
 ns.TrackerZones.RefreshSettings("trackerScrollBeta")
-local pager=assert(upvalue(ns.TrackerZones.Initialize,"pager"))
-assert(pager.frame:IsShown(),"overflow navigation missing with wheel disabled")
+local pager=upvalue(ns.TrackerZones.Initialize,"pager")
+assert(not pager or not pager.frame:IsShown(),"artificial pager shown with working wheel")
+assert(tracker:IsMouseWheelEnabled(),"overflow does not enable wheel")
 local seen={}
 for step=1,12 do
  local current=ns.TrackerZones.GetDiagnosticState()
  for _,r in ipairs(current.geometry)do
-  assert(r.y+r.height<=current.viewport-22,"quest overflows viewport with wheel disabled")
+  assert(r.y+r.height<=current.viewport,"quest overflows native viewport")
   seen[r.id]=true
  end
- pager.next.scripts.OnClick()
+ tracker.scripts.OnMouseWheel(tracker,-1)
 end
-for _,id in ipairs(ids)do assert(seen[id],"unreachable native row without wheel")end
-for step=1,12 do pager.prev.scripts.OnClick()end
+for _,id in ipairs(ids)do assert(seen[id],"unreachable native row")end
+for step=1,12 do tracker.scripts.OnMouseWheel(tracker,1)end
 local foldHeadings=assert(upvalue(ns.TrackerZones.Initialize,"headings"))
 for i=1,6 do
  foldHeadings[1].frame.scripts.OnClick()
  local current=ns.TrackerZones.GetDiagnosticState()
  for _,r in ipairs(current.geometry)do assert(r.y+r.height<=current.viewport,"fold overflow")end
+ if i%2==1 then assert(not tracker:IsMouseWheelEnabled(),"wheel captured when all rows fit") end
 end
-assert(pager.frame:IsShown(),"unfold did not restore overflow navigation")
+assert(tracker:IsMouseWheelEnabled(),"unfold did not restore wheel")
 opts.trackerScrollBeta=true
 ns.TrackerZones.RefreshSettings("trackerScrollBeta")
 -- Repetir EndLayout sin un nuevo AnchorBlock no debe contaminar el respaldo.

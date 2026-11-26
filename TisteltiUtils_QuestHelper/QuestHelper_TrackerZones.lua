@@ -235,7 +235,7 @@ local function hideHeadings()
     for _, head in ipairs(headings) do if safe(head.frame.IsShown,head.frame) == true then head.frame:Hide() end end
     if pager and safe(pager.frame.IsShown,pager.frame)==true then pager.frame:Hide() end
 end
-local refreshVisual, scheduleVisual -- forward references for UI and native hooks
+local refreshVisual, scheduleVisual, configureWheel -- forward references for UI and native hooks
 local PAGER_HEIGHT=22
 local function updatePager(content,view,needed,first,last,total)
     if not needed then
@@ -410,12 +410,14 @@ local function render(tracker, fromNative)
         (tracker.parentContainer and safe(tracker.parentContainer.IsCollapsed, tracker.parentContainer) == true) then
         hideHeadings()
         scrollRows, lastGeometry = nil, {}
+        if configureWheel then configureWheel(false) end
         return
     end
     if conflictingTracker() then
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
         return
     end
     applying = true
@@ -428,6 +430,7 @@ local function render(tracker, fromNative)
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
+        if configureWheel then configureWheel(false) end
         applying = false
         return
     end
@@ -447,6 +450,7 @@ local function render(tracker, fromNative)
     if #actual == 0 then
         hideHeadings()
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
+        if configureWheel then configureWheel(false) end
         applying = false
         return
     end
@@ -493,6 +497,7 @@ local function render(tracker, fromNative)
             hideHeadings()
                 for block in pairs(positions) do restorePosition(block) end
             scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
+        if configureWheel then configureWheel(false) end
             applying = false
             return
         end
@@ -501,7 +506,7 @@ local function render(tracker, fromNative)
 
     -- Solo se cuentan bloques existentes, usados y con el mismo ID.
     local paging = false
-    if fromNative and option("trackerScrollBeta") and #actual ~= totalWatches and not warnedIncomplete then
+    if fromNative and #actual ~= totalWatches and not warnedIncomplete then
         warnedIncomplete = true
         print("|cff73c9ffQuestHelper:|r Blizzard ha construido " .. nativeWatches .. "/" ..
             totalWatches .. " misiones. El scroll solo recorre las filas nativas disponibles.")
@@ -533,6 +538,7 @@ local function render(tracker, fromNative)
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
         scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
         lastViewport,lastContentHeight=nil,nil
         applying=false
         if ns.Perf then ns.Perf.Count("layout.viewport.unknown") end
@@ -575,9 +581,12 @@ local function render(tracker, fromNative)
     lastContentHeight=needed
     paging=needed>viewHeight
     local fullView=viewHeight
-    -- Always expose explicit navigation when content overflows, independent
-    -- of the optional mouse-wheel binding.
-    if paging then viewHeight=viewHeight-PAGER_HEIGHT-4 end
+    -- Overflow owns wheel input only while needed. No page buttons in the
+    -- normal path; retain a small navigation fallback if a foreign handler
+    -- or protected frame prevents installing the wheel safely.
+    local hasWheel=configureWheel and configureWheel(paging)
+    local fallbackPager=paging and not hasWheel
+    if fallbackPager then viewHeight=viewHeight-PAGER_HEIGHT-4 end
     -- A single native row taller than the available page cannot be safely
     -- split. Fall back to Blizzard instead of hiding an inaccessible quest.
     if paging then
@@ -588,6 +597,7 @@ local function render(tracker, fromNative)
                     hideHeadings()
                     for block in pairs(positions) do restorePosition(block) end
                     scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
                     applying=false
                     if ns.Perf then ns.Perf.Count("layout.viewport.row_too_tall") end
                     return
@@ -695,7 +705,7 @@ local function render(tracker, fromNative)
     local first = rows[startIndex]
     scrollKey = paging and first and (first.type == "heading" and "zone:" .. first.zone
         or "quest:" .. tostring(first.entry.id)) or nil
-    updatePager(content,fullView,paging,startIndex,lastDrawn,#rows)
+    updatePager(content,fullView,fallbackPager,startIndex,lastDrawn,#rows)
     if ns.Perf then
         if paging then ns.Perf.Count("layout.viewport.overflow") end
         if ns.Perf.Trace then ns.Perf.Trace("viewport",fullView,needed,#rows,lastDrawn) end
@@ -777,6 +787,7 @@ local function makeSearch()
         field:Hide()
         header.Text:Show()
         searchQuery, searchCorpus = "", {}
+        scrollIndex,scrollKey=1,nil
         searchClosing = false
         refreshVisual(false, "ui.search.close")
     end
@@ -787,6 +798,7 @@ local function makeSearch()
         local value = lower((self:GetText() or ""):match("^%s*(.-)%s*$"))
         if value ~= searchQuery then
             searchQuery = value
+            scrollIndex,scrollKey=1,nil
             refreshVisual(false, "ui.search.text")
         end
         -- El clic en borrar puede quitar el foco antes de vaciar el campo.
@@ -844,9 +856,10 @@ function Zones.PositionSearchBefore(anchor)
 end
 -- Enganchar la rueda exclusivamente al modulo nativo, sin modificar su
 -- enumerador ni invocar MarkDirty/Update/LayoutContents desde Lua inseguro.
-local function configureWheel()
+configureWheel = function(overflow)
     local tracker = _G.QuestObjectiveTracker
-    if not tracker or unsafe() then return end
+    if not tracker or unsafe() then return false end
+    if overflow==nil then overflow=scrollRows~=nil end
     local target = tracker
     if type(target.IsProtected) == "function" and safe(target.IsProtected,target)==true then
         target=tracker.ContentsFrame
@@ -856,12 +869,13 @@ local function configureWheel()
     if type(target.EnableMouseWheel)~="function" then return end
     if wheelHooked then
         if wheelTracker and oldWheelEnabled~=nil then
-            local wanted = option("trackerScrollBeta") or oldWheelEnabled
+            local wanted = overflow or oldWheelEnabled
             if safe(wheelTracker.IsMouseWheelEnabled,wheelTracker) ~= wanted then
                 pcall(wheelTracker.EnableMouseWheel,wheelTracker,wanted)
             end
+            return safe(wheelTracker.IsMouseWheelEnabled,wheelTracker)==true
         end
-        return
+        return false
     end
     if type(target.GetScript)~="function" or type(target.HookScript)~="function" then return end
     -- Respeto al scroll que ya tenga el cliente u otro addon.
@@ -880,8 +894,8 @@ local function configureWheel()
     oldWheelEnabled = type(target.IsMouseWheelEnabled)=="function"
         and safe(target.IsMouseWheelEnabled,target)==true or false
     local ok = pcall(target.HookScript,target,"OnMouseWheel",function(self,delta)
-        if unsafe() or self ~= wheelTracker or not option("trackerScrollBeta")
-            or not scrollRows or type(delta) ~= "number" then return end
+        if unsafe() or self ~= wheelTracker
+            or not scrollRows or type(delta) ~= "number" or delta==0 then return end
         local step = delta > 0 and -1 or 1
         local index = scrollIndex + step
         if index < 1 or index > #scrollRows then return end
@@ -891,9 +905,10 @@ local function configureWheel()
     end)
     if ok then
         wheelHooked,wheelTracker=true,target
-        pcall(target.EnableMouseWheel,target,
-            option("trackerScrollBeta") or oldWheelEnabled)
+        pcall(target.EnableMouseWheel,target,overflow or oldWheelEnabled)
+        return safe(target.IsMouseWheelEnabled,target)==true
     end
+    return false
 end
 
 local scheduled, pendingNative, pendingSources = false, false, {}
