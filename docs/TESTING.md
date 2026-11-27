@@ -37,3 +37,6 @@ The visible area is bounded by the actual native module height. Overflow automat
 
 ### Item button visibility and unit menu safety
 For each native row, hide independently parented, non-protected item buttons only if shown; restore only addon-owned hidden state with matching quest ID, button and parent. Child buttons inherit row visibility. Regression covers folding, search, wheel, native re-show, replacement and disabling presentation. Do not extend unit menus during instances, combat or secret/unknown safety checks; commands remain. Real client taint and protected item buttons still require validation.
+
+### Experimental module compaction
+Only move the native TOP anchor of a directly following ProfessionsRecipeTracker when the complete quest presentation fits and leaves space. Preserve the original native anchor; restore on overflow, disable, collapse or unsupported layout, outside restricted states. No native allocation or height changes. Professions EndLayout shares the existing visual scheduler; no new events. Does not recover missing native recipe blocks. Real-client tests must verify hit testing and native rebuilds; indirect module chains are left unchanged.

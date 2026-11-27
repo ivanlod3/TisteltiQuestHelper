@@ -16,6 +16,7 @@ QuestHelper_Status.lua
 QuestHelper_Diagnostics.lua
 QuestHelper_TrackerSort.lua
 QuestHelper_NativeCapacity.lua
+QuestHelper_ModuleLayout.lua
 QuestHelper_TrackerZones.lua
 QuestHelper_ProgressShare.lua
 QuestHelper_Recent.lua

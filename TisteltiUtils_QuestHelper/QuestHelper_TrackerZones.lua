@@ -8,6 +8,7 @@ ns.TrackerZones = Zones
 local eventFrame = CreateFrame("Frame")
 local headings = {}
 local pager, lastViewport, lastContentHeight
+local compactHeight, professionHooked
 local positions = setmetatable({}, { __mode = "k" })
 local hiddenByUs = setmetatable({}, { __mode = "k" })
 local hiddenItems = setmetatable({}, { __mode = "k" })
@@ -459,6 +460,7 @@ local function collectRendered(tracker)
     return result
 end
 local function render(tracker, fromNative)
+    compactHeight=nil
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
         and ns.TurnInFilter.IsSwapping() then return end
@@ -754,6 +756,9 @@ local function render(tracker, fromNative)
         end
     end
     for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end
+    -- Do not overlap a live quest wheel viewport. Only compact a complete,
+    -- non-paged presentation; keep the full native allocation on overflow.
+    if not paging then compactHeight=y end
     scrollRows, scrollLast = paging and rows or nil, lastDrawn
     scrollIndex = startIndex
     local first = rows[startIndex]
@@ -790,12 +795,20 @@ refreshVisual = function(fromNative, origins)
             if next(searchCorpus) then searchCorpus={} end
         end
         render(tracker, fromNative)
+        if ns.ModuleLayout then ns.ModuleLayout.Apply(tracker,compactHeight) end
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
 function Zones.HandlesRecent() return hooked end
 local function installHooks()
-    if hooked or type(hooksecurefunc) ~= "function" then return end
+    if type(hooksecurefunc) ~= "function" then return end
+    local profession=_G.ProfessionsRecipeTracker
+    if not professionHooked and profession and type(profession.EndLayout)=="function" then
+        professionHooked=pcall(hooksecurefunc,profession,"EndLayout",function()
+            if not unsafe() then scheduleVisual(false,"native.profession.EndLayout") end
+        end)
+    end
+    if hooked then return end
     local tracker = _G.QuestObjectiveTracker
     if not tracker or type(tracker.GetExistingBlock) ~= "function" then return end
     local method = type(tracker.EndLayout) == "function" and "EndLayout"
