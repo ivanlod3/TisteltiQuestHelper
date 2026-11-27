@@ -802,7 +802,18 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() then scheduleVisual(true,"native."..method) end
+        if unsafe() or applying then return end
+        if method == "EndLayout" then
+            -- Blizzard has already built and sized the blocks. Restore the
+            -- presentation in this same call stack, before a frame can draw
+            -- the temporary native order/visibility. Do not request a layout.
+            if ns.Perf then ns.Perf.Count("request.source.native."..method) end
+            refreshVisual(true,"native."..method)
+        else
+            -- LayoutContents runs before EndLayout; older clients need the
+            -- deferred path so unused blocks are released first.
+            scheduleVisual(true,"native."..method)
+        end
     end)
     if ok then hooked = true end
 end

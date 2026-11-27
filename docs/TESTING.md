@@ -37,3 +37,6 @@ The visible area is bounded by the actual native module height. Overflow automat
 
 ### Item button visibility and unit menu safety
 For each native row, hide independently parented, non-protected item buttons only if shown; restore only addon-owned hidden state with matching quest ID, button and parent. Child buttons inherit row visibility. Regression covers folding, search, wheel, native re-show, replacement and disabling presentation. Do not extend unit menus during instances, combat or secret/unknown safety checks; commands remain. Real client taint and protected item buttons still require validation.
+
+### Experimental immediate native presentation
+On clients with EndLayout, the existing secure post-hook applies the complete visual presentation synchronously. The LayoutContents fallback remains deferred; other requests still use the existing scheduler. No changes to the native event stream, geometry budgets, watched IDs, hooks or alpha. The geometry regression holds timers pending during a native rebuild of a folded zone and asserts that rows and external item buttons are hidden before the next frame. The optional native harness checks visible blocks against the current page before draining callbacks. Actual client taint, performance and visual flicker remain live-test requirements.

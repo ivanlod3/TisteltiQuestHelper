@@ -266,8 +266,19 @@ headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState()
 assert(not item:IsShown(),"external item floated after fold")
 assert(not initiallyHidden:IsShown() and child:IsShown() and protected:IsShown(),"native hidden/child/protected item changed")
 local stable=writes;tracker:EndLayout();assert(writes==stable,"redundant item visibility writes")
--- Native can show the same owned button again while the zone is folded.
-show(item);tracker:EndLayout();assert(not item:IsShown(),"native rebuild exposed folded item")
+-- Simulate a genuine next-frame timer, not the synchronous default mock.
+-- A native rebuild must restore visibility before any queued callback runs.
+local immediateTimer=C_Timer.After
+local pending={}
+C_Timer.After=function(_,f)pending[#pending+1]=f end
+resetNative()
+show(item)
+tracker:EndLayout()
+assert(#pending==0,"native EndLayout scheduled a deferred presentation")
+assert(#ns.TrackerZones.GetDiagnosticState().geometry==0,"folded rows rendered before next frame")
+for _,id in ipairs(ids)do assert(not blocks[id]:IsShown(),"native rebuild exposed folded row "..id)end
+assert(not item:IsShown(),"native rebuild exposed folded item")
+C_Timer.After=immediateTimer
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry>0)
 assert(item:IsShown() and not initiallyHidden:IsShown(),"unfold must only restore addon-hidden items")
 search:SetText('Dos');assert(not item:IsShown(),"search exposed filtered item")
