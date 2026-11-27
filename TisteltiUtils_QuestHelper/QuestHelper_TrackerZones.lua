@@ -772,7 +772,7 @@ local function render(tracker, fromNative)
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
-refreshVisual = function(fromNative, origins)
+refreshVisual = function(fromNative, origins, deferCompaction)
     if applying or unsafe() then return end
     if ns.Perf then
         ns.Perf.Count("layout.render.attempt")
@@ -795,9 +795,23 @@ refreshVisual = function(fromNative, origins)
             if next(searchCorpus) then searchCorpus={} end
         end
         render(tracker, fromNative)
-        if ns.ModuleLayout then ns.ModuleLayout.Apply(tracker,compactHeight) end
+        if ns.ModuleLayout and not deferCompaction then ns.ModuleLayout.Apply(tracker,compactHeight) end
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
+end
+-- Container anchoring occurs after the native module EndLayout. Defer only
+-- the compacting anchor, not the quest presentation. Coalesce both modules.
+local compactionPending=false
+local function scheduleCompaction()
+    if not ns.ModuleLayout or compactionPending or unsafe() then return end
+    if not C_Timer or type(C_Timer.After)~="function" then return end
+    compactionPending=true
+    C_Timer.After(0,function()
+        compactionPending=false
+        if not unsafe() and not applying then
+            ns.ModuleLayout.Apply(_G.QuestObjectiveTracker,compactHeight)
+        end
+    end)
 end
 function Zones.HandlesRecent() return hooked end
 local function installHooks()
@@ -805,7 +819,7 @@ local function installHooks()
     local profession=_G.ProfessionsRecipeTracker
     if not professionHooked and profession and type(profession.EndLayout)=="function" then
         professionHooked=pcall(hooksecurefunc,profession,"EndLayout",function()
-            if not unsafe() then scheduleVisual(false,"native.profession.EndLayout") end
+            if not unsafe() then scheduleCompaction() end
         end)
     end
     if hooked then return end
@@ -815,7 +829,15 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() then scheduleVisual(true,"native."..method) end
+        if unsafe() or applying then return end
+        if method == "EndLayout" then
+            if ns.Perf then ns.Perf.Count("request.source.native."..method) end
+            refreshVisual(true,"native."..method,true)
+            scheduleCompaction()
+        else
+            -- Older clients need the deferred path until unused blocks are freed.
+            scheduleVisual(true,"native."..method)
+        end
     end)
     if ok then hooked = true end
 end

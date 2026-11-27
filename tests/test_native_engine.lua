@@ -198,8 +198,21 @@ local seen={}
 for i=1,40 do for _,g in ipairs(checkPage().geometry)do seen[g.id]=true end;tracker.scripts.OnMouseWheel(tracker,-1)end
 for id in pairs(nativeIDs) do assert(seen[id],"unreachable native row "..id) end
 for id in pairs(seen) do assert(nativeIDs[id],"non-native row "..id) end
+-- Check presentation immediately after the original container Update,
+-- before any queued callbacks (including the native dirty callback).
+TisteltiQuestHelperCharDB.trackerFoldedZones={}
 local before=allocations
-for i=1,200 do container:Update();drain()end
+for i=1,200 do
+ container:Update()
+ local s=checkPage()
+ local visible={}
+ for _,g in ipairs(s.geometry)do visible[g.id]=true end
+ for _,id in ipairs(ids)do
+  local b=tracker:GetExistingBlock(id)
+  if b and b.used then assert(b:IsShown()==(visible[id]==true),"native row exposed before timers: "..id)end
+ end
+ drain()
+end
 assert(allocations==before,"native pool grew")
 checkPage()
 assert(watchWrites==0,"addon mutated watches")

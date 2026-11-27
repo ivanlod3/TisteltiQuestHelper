@@ -266,8 +266,19 @@ headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState()
 assert(not item:IsShown(),"external item floated after fold")
 assert(not initiallyHidden:IsShown() and child:IsShown() and protected:IsShown(),"native hidden/child/protected item changed")
 local stable=writes;tracker:EndLayout();assert(writes==stable,"redundant item visibility writes")
--- Native can show the same owned button again while the zone is folded.
-show(item);tracker:EndLayout();assert(not item:IsShown(),"native rebuild exposed folded item")
+-- Simulate a genuine next-frame timer, not the synchronous default mock.
+-- A native rebuild must restore visibility before any queued callback runs.
+local immediateTimer=C_Timer.After
+local pending={}
+C_Timer.After=function(_,f)pending[#pending+1]=f end
+resetNative()
+show(item)
+tracker:EndLayout()
+assert(#pending==0,"native EndLayout scheduled a deferred presentation")
+assert(#ns.TrackerZones.GetDiagnosticState().geometry==0,"folded rows rendered before next frame")
+for _,id in ipairs(ids)do assert(not blocks[id]:IsShown(),"native rebuild exposed folded row "..id)end
+assert(not item:IsShown(),"native rebuild exposed folded item")
+C_Timer.After=immediateTimer
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry>0)
 assert(item:IsShown() and not initiallyHidden:IsShown(),"unfold must only restore addon-hidden items")
 search:SetText('Dos');assert(not item:IsShown(),"search exposed filtered item")
@@ -310,3 +321,27 @@ assert(blocks[101]:GetNumPoints()==1 and blocks[101]:GetPoint(1)=='TOPLEFT')
 assert(blocks[101].anchors[1][4]==33 and ns.TrackerZones.GetDiagnosticState().rows==0)
 assert(watchWrites==0 and nativeCalls==0,'se altero seguimiento o layout nativo')
 print("OK geometria exclusivamente nativa, scroll, busqueda, plegado y cero cambios de seguimiento")
+
+-- Combined branch: the quest presentation is immediate, but the profession
+-- anchor must wait until the parent has finished its native re-anchoring.
+opts.trackerZoneSections=true
+TisteltiQuestHelperCharDB.trackerFoldedZones={}
+resetNative();render(tracker,true)
+local hds=assert(upvalue(ns.TrackerZones.Initialize,"headings"))
+hds[1].frame.scripts.OnClick()
+local queued,applies,renders={},0,0
+ns.ModuleLayout={Apply=function(_,height)applies=applies+1;assert(type(height)=="number")end}
+ns.Perf={Count=function(k)if k=="layout.render" then renders=renders+1 end end,Trace=function()end}
+_G.ProfessionsRecipeTracker={EndLayout=function()end}
+local install=assert(upvalue(ns.TrackerZones.Initialize,"installHooks"))
+install()
+C_Timer.After=function(_,f)queued[#queued+1]=f end
+resetNative()
+tracker:EndLayout()
+for _,id in ipairs(ids)do assert(not blocks[id]:IsShown(),"folded quest flashed in combined branch")end
+assert(applies==0 and #queued==1 and renders==1,"quest layout or compaction timing wrong")
+_G.ProfessionsRecipeTracker:EndLayout()
+assert(#queued==1 and renders==1,"profession triggered duplicate quest presentation")
+queued[1]()
+assert(applies==1 and renders==1,"deferred compaction repainted quests")
+print("OK immediate quest layout and coalesced deferred compaction")
