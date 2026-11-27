@@ -19,6 +19,7 @@ local loggedIn = false
 local lastActiveObjectives, lastUnknownObjectives, lastCompletedObjectives = nil, nil, nil
 local lastItemEntries = {} -- session-only last progress of item objectives
 local lastJournalQuestIDs
+local lastIndexSignature
 ns.QuestItems = {}
 
 local function readable(value)
@@ -223,6 +224,7 @@ function ns.QuestItems.ObjectivesChanged(active, unknown, completed, journalQues
         wipe(questsByID)
         wipe(inventoryUnknown)
         wipe(lastItemEntries)
+        lastIndexSignature = nil
         return
     end
     wipe(itemObjectives)
@@ -293,6 +295,21 @@ function ns.QuestItems.ObjectivesChanged(active, unknown, completed, journalQues
             end
         end
     end
+    -- Compare effective item entries, including retained completed objectives.
+    -- Length-prefix each field so translated names cannot collide.
+    local signature = {}
+    local function part(value) local s=tostring(value); return #s..":"..s end
+    for id, entries in pairs(questsByID) do
+        for _, entry in ipairs(entries) do
+            signature[#signature+1] = part(id)..part(entry.key)..part(entry.kind)
+                ..part(entry.text)..part(entry.count)..part(entry.left)..part(entry.completed==true)
+        end
+    end
+    table.sort(signature)
+    local joined = table.concat(signature,"|") .. "/" .. tostring(enabled("markBags"))
+        .. "/" .. tostring(enabled("markBaganator")) .. "/" .. tostring(enabled("itemTooltips"))
+    if joined == lastIndexSignature then return end
+    lastIndexSignature = joined
     queueBagUpdate()
     if ns.QuestItems.RefreshBaganator then ns.QuestItems.RefreshBaganator() end
 end
@@ -597,6 +614,7 @@ function ns.QuestItems.RefreshBaganator(force)
     local refresh = Baganator.API.RequestItemButtonsRefresh
     if type(refresh) ~= "function" then return end
     -- Only after a quest change or toggling, not on BAG_UPDATE / every frame.
+    if ns.Perf then ns.Perf.Count("baganator.refresh") end
     local reason = Baganator.Constants and Baganator.Constants.RefreshReason
         and Baganator.Constants.RefreshReason.ItemWidgets
     if reason then
@@ -718,6 +736,7 @@ end
 
 function ns.QuestItems.RefreshSettings(key)
     if not loggedIn then return end
+    if key ~= "markBags" and key ~= "markBaganator" and key ~= "itemTooltips" then return end
     syncBagEvents()
     installTooltipHook()
     installBagHooks()

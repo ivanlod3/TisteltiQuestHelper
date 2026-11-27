@@ -4,7 +4,10 @@
 -- No fixed NPC/item names, no QuestieDB, no soft target, no OnUpdate.
 
 local ADDON_NAME, ns = ...
+local Journal = ns.QuestState and ns.QuestState.API or C_QuestLog
 local MACRO_NAME = "QuestHelper"
+local MACRO_ICON = "INV_Misc_Map_01"
+local macroIconApplied = false
 local LEGACY_MACRO_NAME = "QuestTargetLite" -- rename in place to preserve existing action-bar slots
 local MACRO_LIMIT = 255
 local LINE_OBJECTIVE = (Enum and Enum.TooltipDataLineType and Enum.TooltipDataLineType.QuestObjective) or 8
@@ -91,6 +94,7 @@ local function progress(objective)
 end
 
 local function rebuildObjectives()
+    if ns.Perf then ns.Perf.Count("scan.core") end
     wipe(objectivesByText)
     wipe(activeByKey)
     activeCount = 0
@@ -100,16 +104,16 @@ local function rebuildObjectives()
     local inventoryEnabled = feature("markBags") or feature("markBaganator") or feature("itemTooltips")
     local inventoryQuestIDs = {} -- no second journal scan in the inventory module
 
-    local logCount = safe(C_QuestLog and C_QuestLog.GetNumQuestLogEntries) or 0
+    local logCount = safe(Journal and Journal.GetNumQuestLogEntries) or 0
     if type(logCount) ~= "number" then logCount = 0 end
     for i = 1, logCount do
-        local quest = safe(C_QuestLog and C_QuestLog.GetInfo, i)
+        local quest = safe(Journal and Journal.GetInfo, i)
         if type(quest) == "table" and readable(quest.isHeader) and not quest.isHeader
             and readable(quest.questID) and type(quest.questID) == "number" then
             local questID = quest.questID
             if inventoryEnabled then inventoryQuestIDs[questID] = true end
             local questComplete = safe(C_QuestLog and C_QuestLog.IsComplete, questID) == true
-            local list = safe(C_QuestLog and C_QuestLog.GetQuestObjectives, questID)
+            local list = safe(Journal and Journal.GetQuestObjectives, questID)
             if type(list) == "table" then
                 for index, obj in ipairs(list) do
                     if type(obj) == "table" and readable(obj.text)
@@ -279,14 +283,18 @@ local function writeMacro()
         legacy = index ~= 0
     end
     if index == 0 then
-        local success, result = pcall(CreateMacro, MACRO_NAME, "INV_Misc_QuestionMark", body, true)
-        if not success or not result then
+        local success, result = pcall(CreateMacro, MACRO_NAME, MACRO_ICON, body, true)
+        if not success or not result or result == 0 then
             out("No puedo crear la macro (¿limite de macros personales alcanzado?).")
+        else
+            macroIconApplied = true
+            if ns.Perf then ns.Perf.Count("macro.write") end
         end
-    elseif legacy or safe(GetMacroBody, index) ~= body then
+    elseif legacy or not macroIconApplied or safe(GetMacroBody, index) ~= body then
         -- Edit the existing macro ID so action-bar placements keep working.
-        local success = pcall(EditMacro, index, MACRO_NAME, nil, body, true)
-        if not success then out("No puedo editar la macro. Intentalo fuera de combate.") end
+        local success = pcall(EditMacro, index, MACRO_NAME, MACRO_ICON, body, true)
+        if success then macroIconApplied = true; if ns.Perf then ns.Perf.Count("macro.write") end
+        else out("No puedo editar la macro. Intentalo fuera de combate.") end
     end
 end
 
@@ -789,7 +797,7 @@ function ns.CoreRefreshSettings(key)
         combatPending = false
     end
     if key == "autoMacro" and feature("autoMacro") then requestMacro() end
-    if anyObjectivesNeeded() then refreshSoon() end
+    if (key == "autoMacro" or key == "nameplateIcons" or key == "markBags" or key == "markBaganator" or key == "itemTooltips") and anyObjectivesNeeded() then refreshSoon() end
 end
 
 eventFrame:SetScript("OnEvent", function(_, event, arg)
@@ -833,6 +841,8 @@ eventFrame:SetScript("OnEvent", function(_, event, arg)
         if feature("autoMacro") then inspectUnit("mouseover") end
     elseif event == "PLAYER_TARGET_CHANGED" then
         if feature("autoMacro") then inspectUnit("target") end
+    elseif event == "UNIT_QUEST_LOG_CHANGED" then
+        if readable(arg) and arg == "player" then refreshSoon() end
     elseif event == "PLAYER_REGEN_ENABLED" then
         if combatPending then combatPending = false; requestMacro() end
     else
@@ -853,7 +863,10 @@ SLASH_FQTL1 = "/qh"
 SLASH_FQTL2 = "/qtl" -- backward-compatible alias
 SlashCmdList.FQTL = function(text)
     local cmd = type(text) == "string" and text:match("^%s*(.-)%s*$"):lower() or ""
-    if cmd == "update" then
+    if cmd == "perf" or cmd == "perf reset" then
+        if ns.Perf then ns.Perf.Report(cmd == "perf reset") end
+    elseif cmd == "update" then
+        if ns.QuestState then ns.QuestState.Invalidate() end
         refreshNow()
         if feature("autoMacro") and not InCombatLockdown() then writeMacro() end
         out(("Revisado: %d objetivos, %d NPC en macro (espada %d/%d, saquito %d/%d), %d omitidos.")
@@ -898,7 +911,7 @@ SlashCmdList.FQTL = function(text)
         refreshNow()
         out("Nombres aprendidos borrados; se reconstruiran al ver NPC de mision.")
     else
-        out("/qh update | /qh debug | /qh itemdebug | /qh reset | /qh options | /qh apariencia | /qh chatdebug | /qh sortdebug | /qh trackerdiag (alias: /qtl)")
+        out("/qh perf [reset] | /qh update | /qh debug | /qh itemdebug | /qh reset | /qh options | /qh apariencia | /qh chatdebug | /qh sortdebug | /qh trackerdiag (alias: /qtl)")
         out("No cambia tu objetivo salvo cuando pulsas la macro QuestHelper.")
     end
 end

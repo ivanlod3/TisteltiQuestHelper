@@ -2,6 +2,7 @@ local root=assert(arg[1])
 local mouseDown = false
 IsMouseButtonDown=function()return mouseDown end
 local frames, watchWrites, nativeCalls, combat = {}, 0, 0, false
+local registered={}
 local function node(kind,parent)
  local n={kind=kind,parent=parent,anchors={},width=240,height=28,shown=true,writes=0,scripts={}}
  function n:SetPoint(p,r,rp,x,y)
@@ -32,6 +33,7 @@ local function node(kind,parent)
  function n:GetFont()return 'Fonts/FRIZQT__.TTF',12,''end
  function n:GetFontObject()return {}end
  function n:IsProtected()return self.protected or false end
+ function n:GetParent()return self.parent end
  function n:SetText(t)self.text=t;if self.scripts.OnTextChanged then self.scripts.OnTextChanged(self)end end
  function n:GetText()return self.text or ''end
  function n:GetStringHeight()return 12 end
@@ -51,6 +53,7 @@ local function node(kind,parent)
  function n:CreateFontString()return node('font',self)end
  function n:CreateTexture()return node('texture',self)end
  for _,k in ipairs({'RegisterEvent','RegisterForClicks','SetFont','SetFontObject','SetJustifyH','SetWordWrap','SetNonSpaceWrap','SetMaxLines','SetHitRectInsets','SetTextColor','SetColorTexture','SetVertexColor','SetAtlas','SetTexture','SetAllPoints','SetMaxLetters','SetAutoFocus','unusedFocus'})do n[k]=function()end end
+ function n:RegisterEvent(event) registered[event]=true end
  frames[#frames+1]=n;return n
 end
 CreateFrame=function(kind,_,parent,template)
@@ -100,6 +103,10 @@ for _,id in ipairs(ids)do
  blocks[id]=b
 end
 resetNative()
+-- Independently anchored native item button should follow the owning quest.
+local item=node('item',content)
+item:SetPoint('TOPLEFT',content,'TOPLEFT',20,-10)
+blocks[101].ItemButton=item
 function tracker:GetExistingBlock(id)return blocks[id]end
 function tracker:EndLayout()end
 function tracker:MarkDirty()nativeCalls=nativeCalls+1 end
@@ -107,6 +114,7 @@ function tracker:Update()nativeCalls=nativeCalls+1 end
 _G.QuestObjectiveTracker=tracker
 local opts={trackerZoneSections=true,trackerScrollBeta=true,trackerSearchButton=true}
 local ns={Config={Get=function(k)return opts[k]end},TrackerSort={IsActive=function()return false end,Order=function(a)table.sort(a,function(x,y)return x.id<y.id end)end}}
+assert(loadfile(root..'/QuestHelper_NativeCapacity.lua'))('addon',ns)
 assert(loadfile(root..'/QuestHelper_TrackerZones.lua'))('addon',ns)
 local function upvalue(fn,key,seen)
  seen=seen or {};if seen[fn]then return end;seen[fn]=true
@@ -130,8 +138,17 @@ local function checkGeometry()
  end
 end
 checkGeometry()
+assert(math.abs(item:GetTop()-blocks[101]:GetTop())<1,
+ 'item independently anchored to contents did not follow its native quest')
 local state=ns.TrackerZones.GetDiagnosticState()
 assert(state.native==6 and #state.auxiliary==0)
+for event in pairs(registered) do assert(event=="PLAYER_ENTERING_WORLD" or event=="PLAYER_REGEN_ENABLED" or event=="PLAYER_REGEN_DISABLED","unexpected tracker subscription: "..event) end
+assert(not registered.QUEST_LOG_UPDATE and not registered.UNIT_QUEST_LOG_CHANGED)
+local writesBeforeSwap=blocks[101].writes
+ns.TrackerZones.RefreshAfterWatchSwap()
+assert(blocks[101].writes==writesBeforeSwap,"watch swap rendered before native layout")
+tracker:EndLayout()
+state=ns.TrackerZones.GetDiagnosticState()
 assert(state.geometry[1].y==37,'margen inicial nativo de 10 no conservado')
 for i=2,#state.geometry do local a,b=state.geometry[i-1],state.geometry[i];assert(b.y==a.y+a.height+10,'separacion nativa alterada')end
 assert(state.last<#ids+1,'paginacion no activada')
@@ -144,8 +161,39 @@ end
 for _,id in ipairs(ids)do assert(observed[id],'mision nativa inaccesible por scroll')end
 for step=1,10 do tracker.scripts.OnMouseWheel(tracker,1)end
 assert(ns.TrackerZones.GetDiagnosticState().index==1)
+-- A saved legacy scroll=false value must not disable overflow scrolling.
+opts.trackerScrollBeta=false
+ns.TrackerZones.RefreshSettings("trackerScrollBeta")
+local pager=upvalue(ns.TrackerZones.Initialize,"pager")
+assert(not pager or not pager.frame:IsShown(),"artificial pager shown with working wheel")
+assert(tracker:IsMouseWheelEnabled(),"overflow does not enable wheel")
+local seen={}
+for step=1,12 do
+ local current=ns.TrackerZones.GetDiagnosticState()
+ for _,r in ipairs(current.geometry)do
+  assert(r.y+r.height<=current.viewport,"quest overflows native viewport")
+  seen[r.id]=true
+ end
+ tracker.scripts.OnMouseWheel(tracker,-1)
+end
+for _,id in ipairs(ids)do assert(seen[id],"unreachable native row")end
+for step=1,12 do tracker.scripts.OnMouseWheel(tracker,1)end
+local foldHeadings=assert(upvalue(ns.TrackerZones.Initialize,"headings"))
+for i=1,6 do
+ foldHeadings[1].frame.scripts.OnClick()
+ local current=ns.TrackerZones.GetDiagnosticState()
+ for _,r in ipairs(current.geometry)do assert(r.y+r.height<=current.viewport,"fold overflow")end
+ if i%2==1 then assert(not tracker:IsMouseWheelEnabled(),"wheel captured when all rows fit") end
+end
+assert(tracker:IsMouseWheelEnabled(),"unfold did not restore wheel")
+opts.trackerScrollBeta=true
+ns.TrackerZones.RefreshSettings("trackerScrollBeta")
 -- Repetir EndLayout sin un nuevo AnchorBlock no debe contaminar el respaldo.
+local stableWrites=blocks[101].writes
+local h=tracker:GetHeight()
 for i=1,200 do tracker:EndLayout()end
+assert(blocks[101].writes==stableWrites,'layout estable vuelve a escribir anclajes')
+assert(tracker:GetHeight()==h,'se modifico altura nativa')
 checkGeometry();assert(positions[blocks[102]][1][2]==blocks[101])
 assert(positions[blocks[101]][1][5]==-10)
 -- Los anclajes laterales siguen respondiendo al ancho del padre.
@@ -203,10 +251,47 @@ for _,keep in ipairs({true,false})do
 end
 print('OK X, lupa, Escape, Enter y blur con conservar activado/desactivado; ambos ordenes de eventos')
 
--- Plegado real mediante el encabezado del addon.
+-- Independently parented item visibility follows all presentation paths.
+local initiallyHidden=node('item',content)
+initiallyHidden:Hide();blocks[102].ItemButton=initiallyHidden
+local child=node('item',blocks[103]);blocks[103].ItemButton=child
+local protected=node('item',content);protected.protected=true;blocks[104].ItemButton=protected
+local writes=0
+local hide,show=item.Hide,item.Show
+function item:Hide() writes=writes+1;hide(self) end
+function item:Show() writes=writes+1;show(self) end
 local headings=assert(upvalue(ns.TrackerZones.Initialize,'headings'))
+assert(item:IsShown())
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry==0)
+assert(not item:IsShown(),"external item floated after fold")
+assert(not initiallyHidden:IsShown() and child:IsShown() and protected:IsShown(),"native hidden/child/protected item changed")
+local stable=writes;tracker:EndLayout();assert(writes==stable,"redundant item visibility writes")
+-- Native can show the same owned button again while the zone is folded.
+show(item);tracker:EndLayout();assert(not item:IsShown(),"native rebuild exposed folded item")
 headings[1].frame.scripts.OnClick();assert(#ns.TrackerZones.GetDiagnosticState().geometry>0)
+assert(item:IsShown() and not initiallyHidden:IsShown(),"unfold must only restore addon-hidden items")
+search:SetText('Dos');assert(not item:IsShown(),"search exposed filtered item")
+search:SetText('');assert(item:IsShown(),"search reset did not restore item")
+-- The first step can move from a zone heading to its first quest;
+-- advance until that quest actually leaves the viewport.
+for i=1,10 do
+ if not blocks[101]:IsShown() then break end
+ tracker.scripts.OnMouseWheel(tracker,-1)
+end
+assert(not blocks[101]:IsShown() and not item:IsShown(),"scroll exposed offscreen item")
+for i=1,10 do tracker.scripts.OnMouseWheel(tracker,1) end
+assert(item:IsShown(),"scroll return did not restore item")
+-- Replacing an owned button must never resurrect the old pooled object.
+headings[1].frame.scripts.OnClick();assert(not item:IsShown())
+local replacement=node('item',content);replacement:Hide();blocks[101].ItemButton=replacement
+headings[1].frame.scripts.OnClick()
+assert(not item:IsShown() and not replacement:IsShown(),"recycled/hidden item resurrected")
+blocks[101].ItemButton=item;show(item)
+-- Disabling presentation restores only visibility we own.
+headings[1].frame.scripts.OnClick();assert(not item:IsShown())
+opts.trackerZoneSections=false;render(tracker,false)
+assert(item:IsShown() and not initiallyHidden:IsShown(),"disable failed to restore owned visibility")
+opts.trackerZoneSections=true;TisteltiQuestHelperCharDB.trackerFoldedZones={};resetNative();render(tracker,true)
 -- No escribir ni mover en combate.
 local writes=blocks[101].writes;combat=true;tracker.scripts.OnMouseWheel(tracker,-1);tracker:EndLayout();assert(blocks[101].writes==writes);combat=false
 -- Apagar las funciones restaura la cadena nativa, no anclajes propios.

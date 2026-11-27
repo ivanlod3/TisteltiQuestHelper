@@ -7,7 +7,7 @@ The current interface and announcement text are in **Spanish**. Other game clien
 
 ## Features
 
-- Native quest tracker with collapsible zone headings, stable sorting and mouse-wheel paging.
+- Native quest tracker with collapsible zone headings, stable sorting and mouse-wheel paging over the rows Blizzard has constructed. No artificial tracker/container resizing or replacement quest rows.
 - Search with a clear/close button and an option to keep the filter when focus is lost.
 - Reversible ready-to-turn-in filter. An empty result preserves your tracking; turning in the last matching quest restores the previous selection.
 - Kill/loot objective icons and progress counters beside nameplates.
@@ -18,7 +18,7 @@ The current interface and announcement text are in **Spanish**. Other game clien
 
 ## Install
 
-1. Download `TisteltiQuestHelper-0.7.52.zip` from **Releases**, not GitHub's automatic source archive.
+1. Download `TisteltiQuestHelper-0.7.53-beta.1.zip` from **Releases**, not GitHub's automatic source archive.
 2. Extract it into your Forever client's `Interface/AddOns` directory.
 3. Check that `Interface/AddOns/TisteltiUtils_QuestHelper/TisteltiUtils_QuestHelper.toc` exists directly at that path.
 4. Enable **TisteltiUtils - QuestHelper**, then reload the UI or restart the game.

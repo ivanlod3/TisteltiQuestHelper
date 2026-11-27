@@ -72,6 +72,7 @@ local function isReady(id, info)
     return ns.QuestStatus and ns.QuestStatus.IsReady(id, info) == true
 end
 local function scanJournal()
+    if ns.Perf then ns.Perf.Count("scan.filter.fresh") end
     if not permitted() or not Q or type(Q.GetInfo) ~= "function" then return nil end
     local count = safe(Q.GetNumQuestLogEntries)
     if type(count) ~= "number" or count < 0 or count > 500 then return nil end
@@ -427,7 +428,7 @@ events:SetScript("OnEvent", function(_, event)
         if state() then schedule(0.5) end -- el diario puede tardar en poblarse
         return
     end
-    if not button then ensureButton() else makeButton() end
+    if not button then ensureButton() elseif event == "PLAYER_REGEN_ENABLED" then makeButton() end
     if event == "QUEST_LOG_UPDATE" or event == "QUEST_REMOVED" or event == "QUEST_TURNED_IN" then
         journalUpdated = true
     end

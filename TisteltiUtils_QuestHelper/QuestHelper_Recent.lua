@@ -2,7 +2,7 @@
 -- Sin paneles, popups, notificaciones, sonidos ni cambios de zona.
 -- Escaneos por eventos y un único temporizador de caducidad.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Recent = {}
 ns.RecentQuests = Recent
 
@@ -47,13 +47,27 @@ local function colorFor(kind)
     if kind == "AVANCE" then return 0.25, 0.71, 1 end
     if kind == "LISTA" then return 0.32, 1, 0.48 end
 end
+local function hideGlow(rec)
+    if rec and rec.questID then
+        rec.glow:Hide(); rec.edge:Hide(); rec.questID, rec.kind = nil, nil
+        if ns.Perf then ns.Perf.Count("recent.texture.write") end
+    end
+end
 local function paint(block, id)
     if not block or not block.HeaderText or isUnsafe() then return end
+    -- GetExistingBlock can return a pooled row whose owner has already changed.
+    -- Never colour a released block or one assigned to a different quest.
+    if not readable(block.id) or block.id ~= id
+        or not readable(block.used) or block.used ~= true then
+        local old = glowByBlock[block]
+        hideGlow(old)
+        return
+    end
     local kind = recent[id] and recent[id].expires > GetTime() and recent[id].kind
     local r, g, b = colorFor(kind)
     local rec = glowByBlock[block]
     if not r then
-        if rec then rec.glow:Hide(); rec.edge:Hide(); rec.questID = nil end
+        hideGlow(rec)
         return
     end
     if not rec then
@@ -68,7 +82,9 @@ local function paint(block, id)
         rec = {glow = glow, edge = edge}
         glowByBlock[block] = rec
     end
-    rec.questID = id  -- pooled block can later belong to another quest
+    if rec.questID == id and rec.kind == kind then return end
+    rec.questID, rec.kind = id, kind -- pooled block can later belong to another quest
+    if ns.Perf then ns.Perf.Count("recent.texture.write") end
     rec.glow:SetColorTexture(r, g, b, 0.38)
     rec.edge:SetColorTexture(r, g, b, 1)
     rec.glow:Show()
@@ -79,14 +95,16 @@ function Recent.Decorate(module, quest, shown)
     local id = safe(quest.GetID, quest)
     if type(id) ~= "number" or id <= 0 then return end
     local block = safe(module.GetExistingBlock, module, id)
-    if block and (shown == true or block.used == true) then paint(block, id) end
+    if block and readable(block.id) and block.id == id
+        and readable(block.used) and block.used == true then paint(block, id) end
 end
 local function updateDecoration(id)
     if isUnsafe() then return end
     if type(id) == "number" then
         local module = _G.QuestObjectiveTracker
         local block = module and safe(module.GetExistingBlock, module, id)
-        if block and readable(block.used) and block.used == true then
+        if block and readable(block.id) and block.id == id
+            and readable(block.used) and block.used == true then
             paint(block, id)
         end
     else
@@ -95,8 +113,7 @@ local function updateDecoration(id)
             if type(questID) == "number" and questID > 0 then
                 paint(block, questID)
             else
-                rec.glow:Hide()
-                rec.edge:Hide()
+                hideGlow(rec)
             end
         end
     end
@@ -105,6 +122,8 @@ end
 -- actual rendered, currently watched blocks. No native repositioning/redraw.
 function Recent.RepaintRendered()
     if isUnsafe() then return end
+    if not active() then for _,rec in pairs(glowByBlock) do hideGlow(rec) end; return end
+    if ns.Perf then ns.Perf.Count("recent.repaint") end
     local module = _G.QuestObjectiveTracker
     if not module or type(module.GetExistingBlock) ~= "function" then return end
     local count = safe(Q and Q.GetNumQuestWatches)
@@ -114,7 +133,8 @@ function Recent.RepaintRendered()
         local id = safe(Q.GetQuestIDForQuestWatchIndex, i)
         if type(id) == "number" and id > 0 then
             local block = safe(module.GetExistingBlock, module, id)
-            if block and block.HeaderText and readable(block.used) and block.used == true
+            if block and block.HeaderText and readable(block.id) and block.id == id
+                and readable(block.used) and block.used == true
                 and (type(block.IsShown) ~= "function" or safe(block.IsShown, block) == true) then
                 painted[block] = true
                 paint(block, id)
@@ -125,14 +145,15 @@ function Recent.RepaintRendered()
     -- different quest or a released row. Weak keys prevent retained UI frames.
     for block, rec in pairs(glowByBlock) do
         if not painted[block] then
-            rec.glow:Hide()
-            rec.edge:Hide()
-            rec.questID = nil
+            hideGlow(rec)
         end
     end
 end
 local function tryNativeHook()
     if nativeHooked then return end
+    -- In the complete addon TrackerZones owns the single post-layout hook.
+    -- Keep standalone fallback for clients where that hook is unavailable.
+    if ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent() then return end
     local module = _G.QuestObjectiveTracker
     if not module or type(hooksecurefunc) ~= "function" then return end
     -- EndLayout is the first reliable point at which the final pooled rows
@@ -141,7 +162,7 @@ local function tryNativeHook()
         or (type(module.LayoutContents) == "function" and "LayoutContents")
     if method then
         nativeHooked = pcall(hooksecurefunc, module, method, function()
-            Recent.RepaintRendered()
+            if not (ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent()) then Recent.RepaintRendered() end
         end)
     end
 end
@@ -176,8 +197,23 @@ scheduleExpiry = function()
         end)
     end
 end
-local function mark(id, kind)
+local function stateText(state)
+    if not state then return "sin instantanea" end
+    local parts = {"lista=" .. tostring(state.complete)}
+    for i, objective in ipairs(state.objectives or {}) do
+        if i > 12 then parts[#parts + 1] = "..."; break end
+        parts[#parts + 1] = tostring(i) .. ":" .. tostring(objective.identity)
+            .. "=" .. tostring(objective.current or "-") .. "/" .. tostring(objective.required or "-")
+            .. "(fin=" .. tostring(objective.done) .. ")"
+    end
+    return table.concat(parts, ";")
+end
+local function mark(id, kind, reason, before, after)
     if not active() or type(id) ~= "number" or id <= 0 then return end
+    if ns.Diagnostics and ns.Diagnostics.RecordRecent and (not ns.Diagnostics.IsActive or ns.Diagnostics.IsActive()) then
+        ns.Diagnostics.RecordRecent(id, kind, reason or "evento",
+            stateText(before), stateText(after))
+    end
     local now = GetTime()
     recent[id] = {kind = kind, time = now, expires = now + duration()}
     updateDecoration(id)
@@ -189,20 +225,22 @@ local function remove(id)
     updateDecoration(id)
     scheduleExpiry()
 end
+-- Identidad estable: no interpretar la reescritura de una descripción como progreso.
+-- Para el cliente que no rellena numFulfilled/numRequired, usar el sufijo 1/8.
 local function objectiveText(obj)
     if type(obj) ~= "table" or not readable(obj.text)
         or type(obj.text) ~= "string" then return nil end
     local text = obj.text:gsub("^%s+", ""):gsub("%s+$", "")
     if text == "" then return nil end
-    local complete = readable(obj.finished) and obj.finished == true
-    local required = readable(obj.numRequired) and obj.numRequired or nil
+    local done = readable(obj.finished) and obj.finished == true
     local current = readable(obj.numFulfilled) and obj.numFulfilled or nil
-    -- Contadores explícitos: detectar avances aunque el texto del cliente no varíe.
-    local key = text .. "|" .. tostring(complete)
-    if type(current) == "number" and type(required) == "number" then
-        key = key .. "|" .. tostring(current) .. "/" .. tostring(required)
+    local required = readable(obj.numRequired) and obj.numRequired or nil
+    if type(current) ~= "number" or type(required) ~= "number" then
+        local a, b = text:match("(%d+)%s*/%s*(%d+)%s*$")
+        current, required = tonumber(a), tonumber(b)
     end
-    return {key = key, done = complete}
+    local identity = text:gsub("%s*%d+%s*/%s*%d+%s*$", ""):gsub("%s+$", "")
+    return {identity=identity, current=current, required=required, done=done}
 end
 local function readObjectives(id)
     local raw = safe(Q and Q.GetQuestObjectives, id)
@@ -215,15 +253,30 @@ local function readObjectives(id)
     return out
 end
 local function changedObjective(before, after)
-    for i, item in pairs(after) do
-        if before[i] and before[i].key ~= item.key then return true end
+    for index, item in pairs(after) do
+        local previous = before[index]
+        -- Objetivos reconstruidos o reordenados no prueban avance. Solo
+        -- comparamos la misma identidad, conservando el denominador.
+        if previous and previous.identity == item.identity then
+            local validCount = type(previous.current) == "number"
+                and type(item.current) == "number"
+                and type(previous.required) == "number"
+                and previous.required == item.required and item.required > 0
+            if validCount and item.current > previous.current then
+                return ("contador[%d] %d/%d -> %d/%d"):format(index,
+                    previous.current,previous.required,item.current,item.required)
+            end
+            if not previous.done and item.done
+                and (not validCount or item.current >= previous.current)
+                and (previous.required == nil or item.required == previous.required) then
+                return ("completado[%d] false -> true"):format(index)
+            end
+        end
     end
-    if next(before) then
-        for i in pairs(after) do if not before[i] then return true end end
-    end
-    return false
+    return nil
 end
 local function scan(initial)
+    if ns.Perf then ns.Perf.Count("scan.recent") end
     pendingScan = false
     if not active() or not Q or not allowed() then return end
     local total = safe(Q.GetNumQuestLogEntries)
@@ -244,13 +297,17 @@ local function scan(initial)
                 local old = snapshot[id]
                 if not initial and baselineReady and old then
                     if complete and not old.complete then
-                        mark(id, "LISTA")
-                    elseif changedObjective(old.objectives, objectives) then
-                        mark(id, "AVANCE")
+                        mark(id, "LISTA", "lista para entregar", old,
+                            {objectives=objectives, complete=complete})
+                    else
+                        local reason = changedObjective(old.objectives, objectives)
+                        if reason then mark(id, "AVANCE", reason, old,
+                            {objectives=objectives, complete=complete}) end
                     end
                 elseif not initial and baselineReady and not old
                     and not previouslyKnown and not recent[id] then
-                    mark(id, "NUEVA")
+                    mark(id, "NUEVA", "nueva en el diario", nil,
+                        {objectives=objectives, complete=complete})
                 end
                 snapshot[id] = {objectives = objectives, complete = complete}
             end
@@ -325,7 +382,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
     elseif event == "QUEST_ACCEPTED" then
         local id = (readable(b) and type(b) == "number" and b > 0) and b or a
         if readable(id) and type(id) == "number" and id > 0 then
-            mark(id, "NUEVA")
+            mark(id, "NUEVA", "QUEST_ACCEPTED")
         end
         requestScan(0.2)
     elseif event == "QUEST_REMOVED" or event == "QUEST_TURNED_IN" then
@@ -333,7 +390,7 @@ events:SetScript("OnEvent", function(_, event, a, b)
         requestScan(0.18)
     elseif event == "PLAYER_REGEN_ENABLED" then
         tryNativeHook()
-        Recent.RepaintRendered()
+        if not (ns.TrackerZones and ns.TrackerZones.HandlesRecent and ns.TrackerZones.HandlesRecent()) then Recent.RepaintRendered() end
         if baselineReady then requestScan(0.25) else initializeBaseline() end
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         if readable(a) and a == "player" then requestScan(0.18) end

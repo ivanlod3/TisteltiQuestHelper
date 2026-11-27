@@ -2,7 +2,7 @@
 -- Usa la lista que Blizzard ya enumera, sin RemoveQuestWatch/AddQuestWatch.
 -- Funciona con agrupacion por zonas, busqueda y paginacion.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Sort = {}
 ns.TrackerSort = Sort
 

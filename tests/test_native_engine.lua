@@ -171,94 +171,36 @@ assert(loadfile(root..'/QuestHelper_NativeCapacity.lua'))('addon',ns)
 assert(loadfile(root..'/QuestHelper_TrackerZones.lua'))('addon',ns)
 container:MarkDirty() -- primera activacion dentro del callback nativo ya pendiente
 ns.TrackerZones.Initialize();drain()
-assert(nativeCount()==23,'faltan originales tras ampliar contenedor: '..nativeCount())
-assert(container:GetHeight()==32768 and ns.NativeCapacity.GetState().base==800)
+assert(nativeCount()==originalCount,"addon changed native construction limit")
+assert(container:GetHeight()==800 and ns.NativeCapacity.GetState().reason=="native-read-only")
 local function checkPosition()
- assert(container:GetTop()==900, 'rastreador empujado hacia arriba por el clamp')
- assert(container.clamped==true and container.top==900, 'anclaje o clamp desactivado')
+ assert(container:GetHeight()==800 and container:GetTop()==900)
  local l,r,t,b=container:GetClampRectInsets()
- assert(l==-3 and r==4 and t==5)
- assert(container:GetBottom()+b==900-ns.NativeCapacity.GetState().base-6, 'borde visible incorrecto')
+ assert(l==-3 and r==4 and t==5 and b==-6)
 end
-checkPosition()
 for k,v in pairs(originals)do assert(tracker[k]==v,'metodo nativo sustituido: '..k)end
 local function checkPage()
  checkPosition()
- local s=ns.TrackerZones.GetDiagnosticState();assert(#s.auxiliary==0 and s.native==23)
+ local s=ns.TrackerZones.GetDiagnosticState()
+ assert(#s.auxiliary==0 and s.native==nativeCount())
  for _,g in ipairs(s.geometry)do
   local b=tracker:GetExistingBlock(g.id)
-  assert(b.parentModule==tracker and b.template=='ObjectiveTrackerQuestPOIBlockTemplate')
-  assert(b:GetWidth()==240 and b:GetHeight()==52,'geometria de mision alterada')
-  assert(b:GetLeft()==2535 and b.poiButton.questID==g.id,'identidad o sangria incorrecta')
-  assert(b.HeaderText:GetText()=='['..g.id..'] Mision '..g.id,'texto nativo reconstruido')
-  assert(g.y+g.height<=s.capacity.view,'bloque fuera del area visible: y='..g.y..' h='..g.height..' view='..s.capacity.view..' base='..s.capacity.base)
+  assert(b.used and b.id==g.id and b.parentModule==tracker)
+  assert(b:GetWidth()==240 and b:GetHeight()==52)
+  assert(b:GetLeft()==2535 and b.poiButton.questID==g.id)
+  assert(g.y+g.height<=s.capacity.view)
  end
- assert(tracker:GetHeight()<=800,'el modulo visual sigue con altura de construccion')
  return s
 end
-checkPage()
+local nativeIDs={}
+for _,id in ipairs(ids)do local b=tracker:GetExistingBlock(id);if b and b.used then nativeIDs[id]=true end end
 local seen={}
 for i=1,40 do for _,g in ipairs(checkPage().geometry)do seen[g.id]=true end;tracker.scripts.OnMouseWheel(tracker,-1)end
-for id=1,23 do assert(seen[id],'inaccesible: '..id)end
-local snapshot=ids
-ids={22,23};ns.TrackerZones.RefreshAfterWatchSwap();container:Update();drain()
-assert(nativeCount()==2 and #ns.TrackerZones.GetDiagnosticState().auxiliary==0)
-ids={};ns.TrackerZones.RefreshAfterWatchSwap();container:Update();drain()
-assert(nativeCount()==0 and #ns.TrackerZones.GetDiagnosticState().geometry==0)
-ids=snapshot;ns.TrackerZones.RefreshAfterWatchSwap();container:Update();drain();checkPage()
+for id in pairs(nativeIDs) do assert(seen[id],"unreachable native row "..id) end
+for id in pairs(seen) do assert(nativeIDs[id],"non-native row "..id) end
 local before=allocations
 for i=1,200 do container:Update();drain()end
-assert(allocations==before,'el scroll/layout pierde bloques del pool');checkPage()
--- Compartir el mismo contenedor con dos modulos nativos de prioridad normal.
-local function other(order,h)
- local m=node('other',container);m.uiOrder=order
- m.GetContentsHeight=function()return h end;m.IsTruncated=function()return false end
- m.IsDisplayable=function()return true end;m.Update=function(self)self:SetHeight(h);return h,false end
- return m
-end
-local above,below=other(1,90),other(3,120);above.leftMargin=0;below.leftMargin=0
-container.modules={above,tracker,below};container:MarkDirty();drain();checkPage()
-assert(below:GetBottom()>=container:GetTop()-800,'otro modulo desplazado fuera de pantalla')
-assert(above:GetHeight()==90 and below:GetHeight()==120,'otro modulo redimensionado')
-above.hasDisplayPriority=true;container:Update();drain();checkPage()
-assert(below:GetBottom()>=container:GetTop()-800,'modulo de prioridad rompe el espacio reservado')
--- La expansion no modifica el estado de un modulo nativo plegado.
-tracker.isCollapsed=true;container:Update();drain()
-assert(#ns.TrackerZones.GetDiagnosticState().geometry==0 and tracker:GetHeight()==25)
-tracker.isCollapsed=false;container:Update();drain();checkPage()
-
--- Resize y preservacion de la altura normal, no de la ampliada.
-container:SetHeight(650);drain();checkPage();assert(ns.NativeCapacity.GetState().base==650)
--- Combate: restaurar contenedor; no llamadas del addon a Update/MarkDirty.
-combat=true
-for _,f in ipairs(frames)do if f.scripts.OnEvent then f.scripts.OnEvent(f,'PLAYER_REGEN_DISABLED')end end
-drain();assert(container:GetHeight()==650 and nativeCount()<23)
-assert(container.clamp[4]==-6 and container:GetTop()==900,'combate no restaura clamp')
-combat=false
-for _,f in ipairs(frames)do if f.scripts.OnEvent then f.scripts.OnEvent(f,'PLAYER_REGEN_ENABLED')end end
-drain();assert(nativeCount()==23);checkPage()
--- Si otros modulos llenan la pantalla, recuperar el reparto nativo sin
--- alternar cada frame entre altura ampliada y normal.
-local large=other(1,620);large.leftMargin=0
-container.modules={large,tracker};container:MarkDirty();drain()
-assert(not ns.NativeCapacity.GetState().enabled and container:GetHeight()==650)
-local changes=container.writes
-for i=1,20 do container:Update();drain()end
-assert(container.writes==changes,'oscilacion con otro modulo grande')
-container.modules={tracker};container:Update();drain();assert(nativeCount()==23)
--- Ninguna resta de coordenadas antes de que el motor haya resuelto anclajes.
-local getTop=tracker.GetTop;tracker.GetTop=function()return nil end
-assert(ns.NativeCapacity.GetViewHeight(tracker)==nil);tracker.GetTop=getTop
-opts.trackerScrollBeta=false;ns.TrackerZones.RefreshSettings('trackerScrollBeta');drain()
-assert(container:GetHeight()==650,'desactivar no devuelve altura nativa')
-assert(container.clamp[4]==-6 and container:GetTop()==900,'desactivar no restaura clamp')
--- Reactivar tras un cambio de limites hecho por Blizzard; sin sumar dos veces.
-container:SetClampRectInsets(-3,4,5,-6)
-opts.trackerScrollBeta=true;ns.TrackerZones.RefreshSettings('trackerScrollBeta');drain();checkPosition()
-container:SetClampRectInsets(-3,4,5,-6);checkPosition()
--- Mantiene la contencion real incluso si la posicion solicitada cae fuera.
-container.top=2000;assert(container:GetTop()==995,'limite superior desactivado')
-container.top=100;assert(container:GetTop()==656,'limite inferior desactivado')
-container.top=900;checkPosition()
-assert(watchWrites==0,'cambios de seguimiento')
-print('OK clamp conserva posicion y limites, restauracion y cambios externos; callback nativo capturado; referencia 1.60.1: '..originalCount..'/23 -> 23/23 originales; scroll completo; pool estable 200 layouts; dos modulos vecinos; resize; combate/restauracion; cero watches')
+assert(allocations==before,"native pool grew")
+checkPage()
+assert(watchWrites==0,"addon mutated watches")
+print("OK native-only presentation: available native rows pageable; no expansion, replacement, or watch changes")

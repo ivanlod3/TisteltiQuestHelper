@@ -1,14 +1,16 @@
 -- Reordenacion visual de filas originales de Blizzard. Sin filas auxiliares.
--- NativeCapacity permite que el contenedor original construya todas las filas.
+-- El contenedor y las dimensiones nativas son de solo lectura.
 local addonName, ns = ...
-local Q = C_QuestLog
+local Q = ns.QuestState and ns.QuestState.API or C_QuestLog
 local Zones = {}
 ns.TrackerZones = Zones
 
 local eventFrame = CreateFrame("Frame")
 local headings = {}
+local pager, lastViewport, lastContentHeight
 local positions = setmetatable({}, { __mode = "k" })
 local hiddenByUs = setmetatable({}, { __mode = "k" })
+local hiddenItems = setmetatable({}, { __mode = "k" })
 local zoneByID = {}
 local cacheDirty, hooked, applying, warned = true, false, false, false
 local wheelHooked, wheelTracker, oldWheelEnabled = false, nil, nil
@@ -19,6 +21,14 @@ local warnedIncomplete = false
 -- coordenadas impuestas en el render anterior. Evita guardar nuestro propio
 -- layout como plantilla para la siguiente actualización.
 local addonPlacement = setmetatable({}, {__mode="k"})
+-- Native quest item buttons may be parented elsewhere and stay at the old
+-- coordinates when their owning block is visually reordered.
+local function questItem(block)
+    local b = block and (block.ItemButton or block.itemButton)
+    if b and type(b.GetParent) == "function" and type(b.GetNumPoints) == "function"
+        and type(b.SetPoint) == "function" then return b end
+end
+
 local searchButton, searchBox, searchVisible
 local searchAnchor
 local searchQuery, searchCorpus = "", {}
@@ -74,6 +84,7 @@ end
 local function refreshZoneCache()
     if not cacheDirty or unsafe() then return end
     cacheDirty = false
+    if ns.Perf then ns.Perf.Count("scan.zones") end
     local result, current = {}, "Otras misiones"
     local count = safe(Q and Q.GetNumQuestLogEntries)
     if type(count) ~= "number" or count < 0 or count > 500 then
@@ -125,6 +136,100 @@ local function readPosition(block)
     end
     return anchors
 end
+-- A native item button can be a sibling of its quest block. Hiding the
+-- block does not hide siblings. Record only visibility we actually changed;
+-- child buttons inherit visibility naturally, and protected buttons are
+-- never touched. A recycled block or replaced button invalidates ownership.
+local function externalItem(block)
+    local item=questItem(block)
+    if not item or unsafe() or safe(item.IsProtected,item)~=false then return end
+    local parent=safe(item.GetParent,item)
+    if not parent then return end
+    local ancestor=parent
+    for i=1,32 do
+        if ancestor==block then return end
+        local nextParent=safe(ancestor.GetParent,ancestor)
+        if not nextParent then return item,parent end
+        if nextParent==ancestor then return end
+        ancestor=nextParent
+    end
+end
+local function syncItemVisibility(block, visible)
+    local saved=hiddenItems[block]
+    if not readable(block.id) or type(block.id)~="number" or not readable(block.used) or block.used~=true then
+        hiddenItems[block]=nil
+        return
+    end
+    local item,parent=externalItem(block)
+    if saved and (saved.id~=block.id or saved.item~=questItem(block)
+        or (parent and saved.parent~=parent)) then
+        hiddenItems[block]=nil
+        saved=nil
+    end
+    if not item then return end
+    local shown=safe(item.IsShown,item)
+    if visible then
+        if saved and saved.item==item and shown==false then
+            if pcall(item.Show,item) then
+                hiddenItems[block]=nil
+                if ns.Perf then ns.Perf.Count("layout.item.show") end
+            end
+        elseif saved and shown==true then hiddenItems[block]=nil end
+    elseif shown==true then
+        if pcall(item.Hide,item) then
+            hiddenItems[block]={id=block.id,item=item,parent=parent}
+            if ns.Perf then ns.Perf.Count("layout.item.hide") end
+        end
+    end
+end
+local function setQuestBlockVisible(block, visible)
+    if not canMove(block) or not readable(block.used) or block.used~=true then return end
+    if visible then
+        if safe(block.IsShown,block)==false then block:Show() end
+        hiddenByUs[block]=nil
+    else
+        if safe(block.IsShown,block)==true then block:Hide() end
+        hiddenByUs[block]=true
+    end
+    syncItemVisibility(block,visible)
+end
+local function itemSnapshot(block)
+    local item = questItem(block)
+    if not item or (type(item.IsProtected) == "function"
+        and safe(item.IsProtected,item) ~= false) then return end
+    local anchors = readPosition(item)
+    if not anchors then return end
+    return {button=item, questID=block.id, parent=safe(item.GetParent,item), anchors=anchors,
+        left=safe(item.GetLeft,item), top=safe(item.GetTop,item),
+        blockLeft=safe(block.GetLeft,block),blockTop=safe(block.GetTop,block)}
+end
+local function syncQuestItem(block, before)
+    if not before or before.questID ~= block.id or before.button ~= questItem(block) then return end
+    local item = before.button
+    if not canMove(item) or not before.blockLeft or not before.blockTop then return end
+    local bx,by=safe(block.GetLeft,block),safe(block.GetTop,block)
+    local ix,iy=safe(item.GetLeft,item),safe(item.GetTop,item)
+    if type(bx)~="number" or type(by)~="number"
+        or type(ix)~="number" or type(iy)~="number"
+        or type(before.left)~="number" or type(before.top)~="number" then return end
+    local dx,dy=bx-before.blockLeft,by-before.blockTop
+    if math.abs(dx)<0.5 and math.abs(dy)<0.5 then return end
+    -- An item anchored to the block follows automatically; an item which
+    -- hasn't followed is adjusted only when a simple owned anchor is available.
+    if math.abs(ix-before.left-dx)<1 and math.abs(iy-before.top-dy)<1 then return end
+    if math.abs(ix-before.left)>1 or math.abs(iy-before.top)>1 then return end
+    if #before.anchors ~= 1 then return end
+    local a=before.anchors[1]
+    local content = safe(block.GetParent,block)
+    if a[2] ~= block and a[2] ~= content then return end
+    -- A button with a single anchor to its owner is expected to follow it.
+    -- For an independently anchored button on the same content layer, apply
+    -- the observed displacement. Reject ambiguous multi-anchor geometry.
+    local x, y = a[4], a[5]
+    if a[2] == content then x, y = x + dx, y + dy end
+    local ok = pcall(item.ClearAllPoints,item)
+    if ok then pcall(item.SetPoint,item,a[1],a[2],a[3],x,y) end
+end
 local function samePosition(a, b)
     if not a or not b or #a ~= #b then return false end
     for i, p in ipairs(a) do
@@ -165,25 +270,74 @@ local function restorePosition(block)
     if not canMove(block) then return end
     local anchors = positions[block]
     if anchors and (block.used ~= true or block.id ~= anchors.id) then
-        positions[block], addonPlacement[block], hiddenByUs[block] = nil, nil, nil
+        positions[block], addonPlacement[block], hiddenByUs[block], hiddenItems[block] = nil, nil, nil, nil
         return
     end
-    if anchors then
+    local itemBefore
+    if anchors and not samePosition(readPosition(block), anchors) then
+        itemBefore = itemSnapshot(block)
+        if ns.Perf then ns.Perf.Count("layout.anchor.restore") end
         block:ClearAllPoints()
         for _, a in ipairs(anchors) do
             block:SetPoint(a[1], a[2], a[3], a[4], a[5])
         end
     end
-    if hiddenByUs[block] then
-        if readable(block.used) and block.used == true then block:Show() end
-        hiddenByUs[block] = nil
-    end
-    addonPlacement[block] = nil
+    if hiddenByUs[block] then setQuestBlockVisible(block,true)
+    else syncItemVisibility(block,true) end
+    positions[block], addonPlacement[block] = nil, nil
+    syncQuestItem(block,itemBefore)
 end
 local function hideHeadings()
-    for _, head in ipairs(headings) do head.frame:Hide() end
+    for _, head in ipairs(headings) do if safe(head.frame.IsShown,head.frame) == true then head.frame:Hide() end end
+    if pager and safe(pager.frame.IsShown,pager.frame)==true then pager.frame:Hide() end
 end
-local refreshVisual -- forward reference for local heading click handlers
+local refreshVisual, scheduleVisual, configureWheel -- forward references for UI and native hooks
+local PAGER_HEIGHT=22
+local function updatePager(content,view,needed,first,last,total)
+    if not needed then
+        if pager and safe(pager.frame.IsShown,pager.frame)==true then pager.frame:Hide() end
+        return
+    end
+    if not pager then
+        local frame=CreateFrame("Frame",nil,content)
+        frame:SetHeight(PAGER_HEIGHT)
+        local label=frame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+        label:SetPoint("CENTER",frame,"CENTER",0,0)
+        local function button(x,text,step)
+            local b=CreateFrame("Button",nil,frame)
+            b:SetSize(30,PAGER_HEIGHT)
+            b:SetPoint("CENTER",frame,"CENTER",x,0)
+            local font=b:CreateFontString(nil,"OVERLAY","GameFontNormal")
+            font:SetPoint("CENTER",b,"CENTER",0,0)
+            font:SetText(text)
+            b:SetScript("OnClick",function()
+                if unsafe() or not scrollRows then return end
+                if step<0 and scrollIndex<=1 or step>0 and scrollLast>=#scrollRows then return end
+                scrollIndex=math.max(1,math.min(#scrollRows,scrollIndex+step))
+                scrollKey=nil
+                refreshVisual(false,step<0 and "ui.page.prev" or "ui.page.next")
+            end)
+            return b,font
+        end
+        local prev,pf=button(-67,"<",-1)
+        local next,nf=button(67,">",1)
+        pager={frame=frame,label=label,prev=prev,next=next,pf=pf,nf=nf}
+    end
+    local width=safe(content.GetWidth,content) or 200
+    local y=-(view-PAGER_HEIGHT)
+    local anchors={{"TOPLEFT",content,"TOPLEFT",0,y}}
+    if not samePosition(readPosition(pager.frame),anchors) then
+        pager.frame:ClearAllPoints();pager.frame:SetPoint("TOPLEFT",content,"TOPLEFT",0,y)
+    end
+    if safe(pager.frame.GetWidth,pager.frame)~=width then pager.frame:SetWidth(width) end
+    local label=first.."-"..last.." / "..total
+    if pager.lastLabel~=label then pager.label:SetText(label);pager.lastLabel=label end
+    local prev=first>1
+    local next=last<total
+    if pager.prevActive~=prev then pager.pf:SetTextColor(prev and 1 or .45,prev and .82 or .45,prev and .15 or .45);pager.prevActive=prev end
+    if pager.nextActive~=next then pager.nf:SetTextColor(next and 1 or .45,next and .82 or .45,next and .15 or .45);pager.nextActive=next end
+    if safe(pager.frame.IsShown,pager.frame)~=true then pager.frame:Show() end
+end
 -- Las zonas toman la tipografia y color del titulo nativo "Misiones".
 -- Solo afecta a elementos creados por el addon.
 local function headingFont(text)
@@ -241,7 +395,7 @@ local function heading(parent, index)
         if unsafe() or not record.zone then return end
         local current = folded()
         current[record.zone] = not current[record.zone] or nil
-        refreshVisual(false)
+        refreshVisual(false, "ui.fold")
     end)
     button:Hide()
     return record
@@ -304,15 +458,6 @@ local function collectRendered(tracker)
     nativeWatches = #result
     return result
 end
-function Zones.NeedsCapacity()
-    return not conflictingTracker() and option("trackerScrollBeta") and
-        (option("trackerZoneSections") or searchQuery ~= "" or
-        (ns.TrackerSort and ns.TrackerSort.IsActive and ns.TrackerSort.IsActive()))
-end
--- Reflow ONLY the blocks created by the native tracker on this layout pass.
--- Unlike the 0.7.42-0.7.46 fallback modes, this never guesses a capacity
--- from ContentsFrame:GetHeight() (which is the *used*, not available height),
--- and it never leaves a header anchored to a discarded quest block.
 local function render(tracker, fromNative)
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
@@ -321,14 +466,18 @@ local function render(tracker, fromNative)
         (tracker.parentContainer and safe(tracker.parentContainer.IsCollapsed, tracker.parentContainer) == true) then
         hideHeadings()
         scrollRows, lastGeometry = nil, {}
+        if configureWheel then configureWheel(false) end
         return
     end
     if conflictingTracker() then
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
+        scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
         return
     end
     applying = true
+    if ns.Perf then ns.Perf.Count("layout.render") end
     if ns.Diagnostics then ns.Diagnostics.Capture("before-addon") end
     local content = tracker.ContentsFrame
     local wantZones = option("trackerZoneSections")
@@ -337,6 +486,7 @@ local function render(tracker, fromNative)
         hideHeadings()
         for block in pairs(positions) do restorePosition(block) end
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
+        if configureWheel then configureWheel(false) end
         applying = false
         return
     end
@@ -356,7 +506,7 @@ local function render(tracker, fromNative)
     if #actual == 0 then
         hideHeadings()
         scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
-        if ns.NativeCapacity then ns.NativeCapacity.FitVisible(tracker, 0) end
+        if configureWheel then configureWheel(false) end
         applying = false
         return
     end
@@ -403,6 +553,7 @@ local function render(tracker, fromNative)
             hideHeadings()
                 for block in pairs(positions) do restorePosition(block) end
             scrollRows, scrollIndex, scrollKey, scrollLast, lastGeometry = nil, 1, nil, 0, {}
+        if configureWheel then configureWheel(false) end
             applying = false
             return
         end
@@ -410,18 +561,15 @@ local function render(tracker, fromNative)
     end
 
     -- Solo se cuentan bloques existentes, usados y con el mismo ID.
-    local paging = option("trackerScrollBeta") and #actual > 0
-    local capacityState = ns.NativeCapacity and ns.NativeCapacity.GetState()
-    local awaitingBuild = capacityState and capacityState.enabled and
-        type(tracker.availableHeight)=="number" and tracker.availableHeight < capacityState.base
-    if fromNative and option("trackerScrollBeta") and not awaitingBuild and #actual ~= totalWatches and not warnedIncomplete then
+    local paging = false
+    if fromNative and #actual ~= totalWatches and not warnedIncomplete then
         warnedIncomplete = true
         print("|cff73c9ffQuestHelper:|r Blizzard ha construido " .. nativeWatches .. "/" ..
-            totalWatches .. " misiones. Faltan filas nativas; /tqhdiag full conserva el detalle.")
+            totalWatches .. " misiones. El scroll solo recorre las filas nativas disponibles.")
     end
     if #actual == totalWatches then warnedIncomplete=false end
     local viewHeight = ns.NativeCapacity and ns.NativeCapacity.GetViewHeight(tracker)
-    if paging and viewHeight == nil then
+    if viewHeight == nil then
         -- availableHeight es solo lectura; nunca se escribe en Edit Mode.
         local candidate = readable(tracker.availableHeight) and tracker.availableHeight
         if type(candidate) == "number" and candidate > 40 and candidate < 3000 then
@@ -439,19 +587,21 @@ local function render(tracker, fromNative)
                 viewHeight = overall - (type(headerHeight) == "number" and headerHeight or 28) - 10
             end
         end
-        if not viewHeight then paging = false end
     end
+    -- All custom layouts must fit, even with the wheel option disabled.
+    -- Without a trustworthy viewport, restore the original native geometry.
+    if type(viewHeight)~="number" or viewHeight<=0 then
+        hideHeadings()
+        for block in pairs(positions) do restorePosition(block) end
+        scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
+        lastViewport,lastContentHeight=nil,nil
+        applying=false
+        if ns.Perf then ns.Perf.Count("layout.viewport.unknown") end
+        return
+    end
+    lastViewport=viewHeight
     local startIndex = 1
-    if paging and #rows > 1 then
-        startIndex = math.min(math.max(scrollIndex, 1), #rows)
-        if scrollKey then
-            for i, row in ipairs(rows) do
-                local key = row.type == "heading" and "zone:" .. row.zone
-                    or "quest:" .. tostring(row.entry.id)
-                if key == scrollKey then startIndex = i; break end
-            end
-        end
-    end
     local contentWidth = safe(content.GetWidth, content) or 235
     local questGap = readable(tracker.fromBlockOffsetY) and tracker.fromBlockOffsetY
     questGap = type(questGap) == "number" and math.max(0, -questGap) or 10
@@ -473,6 +623,55 @@ local function render(tracker, fromNative)
             end
         end
     end
+    -- Measure the complete presentation before placing any custom rows.
+    local needed, seenHeadings=y,0
+    for _,row in ipairs(rows) do
+        if row.type=="heading" then
+            needed=needed+HEADER_HEIGHT+HEADER_BOTTOM_GAP+(seenHeadings==0 and 0 or HEADER_TOP_GAP)
+            seenHeadings=seenHeadings+1
+        else
+            local rect=nativeRects[row.entry.block]
+            needed=needed+rect.height+questGap
+        end
+    end
+    lastContentHeight=needed
+    paging=needed>viewHeight
+    local fullView=viewHeight
+    -- Overflow owns wheel input only while needed. No page buttons in the
+    -- normal path; retain a small navigation fallback if a foreign handler
+    -- or protected frame prevents installing the wheel safely.
+    local hasWheel=configureWheel and configureWheel(paging)
+    local fallbackPager=paging and not hasWheel
+    if fallbackPager then viewHeight=viewHeight-PAGER_HEIGHT-4 end
+    -- A single native row taller than the available page cannot be safely
+    -- split. Fall back to Blizzard instead of hiding an inaccessible quest.
+    if paging then
+        for _,row in ipairs(rows) do
+            if row.type=="quest" then
+                local h=nativeRects[row.entry.block].height+questGap
+                if y+h+(wantZones and HEADER_HEIGHT+HEADER_BOTTOM_GAP+HEADER_TOP_GAP or 0)>viewHeight then
+                    hideHeadings()
+                    for block in pairs(positions) do restorePosition(block) end
+                    scrollRows,scrollIndex,scrollKey,scrollLast,lastGeometry=nil,1,nil,0,{}
+        if configureWheel then configureWheel(false) end
+                    applying=false
+                    if ns.Perf then ns.Perf.Count("layout.viewport.row_too_tall") end
+                    return
+                end
+            end
+        end
+    end
+    if paging and #rows > 1 then
+        startIndex = math.min(math.max(scrollIndex, 1), #rows)
+        if scrollKey then
+            for i, row in ipairs(rows) do
+                local key = row.type == "heading" and "zone:" .. row.zone
+                    or "quest:" .. tostring(row.entry.id)
+                if key == scrollKey then startIndex = i; break end
+            end
+        end
+    end
+    lastDrawn=startIndex-1
     -- Cuando empieza una pagina a mitad de zona, mostrar su encabezado
     -- sin repetirlo dentro de la misma pagina.
     local previousZone
@@ -483,15 +682,21 @@ local function render(tracker, fromNative)
         local gap = headingsUsed == 0 and 0 or HEADER_TOP_GAP
         headingsUsed = headingsUsed + 1
         local rec = heading(content, headingsUsed)
-        rec.zone = zone
-        rec.text:SetText(zone)
+        if rec.zone ~= zone then rec.zone = zone; rec.text:SetText(zone) end
         headingFont(rec.text)
         headingColor(rec.text, rec.arrow, rec.hovered)
-        setHeadingArrow(rec, collapsedZones[zone] and searchQuery == "")
-        rec.frame:ClearAllPoints()
-        rec.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + gap))
-        rec.frame:SetWidth(math.max(70, contentWidth - 10))
-        rec.frame:Show()
+        local collapsed = collapsedZones[zone] == true and searchQuery == ""
+        if rec.collapsed ~= collapsed then setHeadingArrow(rec, collapsed); rec.collapsed = collapsed end
+        local wanted = {{"TOPLEFT",content,"TOPLEFT",0,-(y+gap)}}
+        if not samePosition(readPosition(rec.frame),wanted) then
+            rec.frame:ClearAllPoints()
+            rec.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + gap))
+            if ns.Perf then ns.Perf.Count("layout.anchor.heading") end
+        end
+        local width = math.max(70,contentWidth-10)
+        local actualWidth = safe(rec.frame.GetWidth,rec.frame)
+        if type(actualWidth) ~= "number" or math.abs(actualWidth-width)>0.01 then rec.frame:SetWidth(width) end
+        if safe(rec.frame.IsShown,rec.frame) ~= true then rec.frame:Show() end
         y = y + gap + HEADER_HEIGHT + HEADER_BOTTOM_GAP
     end
     if previousZone and (not paging or y+HEADER_HEIGHT+HEADER_BOTTOM_GAP <= viewHeight) then drawHeading(previousZone) end
@@ -520,17 +725,22 @@ local function render(tracker, fromNative)
             -- Solo la referencia vertical del bloque. Regiones, anchuras,
             -- alturas, callbacks e iconos siguen siendo los de Blizzard.
             local anchors = positions[b]
-            b:ClearAllPoints()
+            local wanted = {}
             for j, a in ipairs(anchors) do
-                if j == rect.top then
-                    b:SetPoint("TOPLEFT", content, "TOPLEFT", anchors[rect.left][4], -y)
-                else b:SetPoint(a[1], a[2], a[3], a[4], a[5]) end
+                wanted[j] = j == rect.top and {"TOPLEFT",content,"TOPLEFT",anchors[rect.left][4],-y} or a
             end
             local placed = readPosition(b)
+            if not samePosition(placed,wanted) then
+                local itemBefore = itemSnapshot(b)
+                b:ClearAllPoints()
+                for _, a in ipairs(wanted) do b:SetPoint(a[1],a[2],a[3],a[4],a[5]) end
+                if ns.Perf then ns.Perf.Count("layout.anchor.quest") end
+                placed = readPosition(b)
+                syncQuestItem(b,itemBefore)
+            end
             if placed then placed.id = b.id end
             addonPlacement[b] = placed
-            if safe(b.IsShown, b) ~= true then b:Show() end
-            hiddenByUs[b] = nil
+            setQuestBlockVisible(b,true)
             visible[b] = true
             lastGeometry[#lastGeometry + 1] = {id = row.entry.id, y = y,
                 width = rect.width, height = rect.height}
@@ -540,33 +750,50 @@ local function render(tracker, fromNative)
     end
     for _, e in ipairs(actual) do
         if not visible[e.block] then
-            if safe(e.block.IsShown, e.block) == true then e.block:Hide() end
-            hiddenByUs[e.block] = true
+            setQuestBlockVisible(e.block,false)
         end
     end
-    for i = headingsUsed + 1, #headings do headings[i].frame:Hide() end
-    if ns.NativeCapacity and paging then ns.NativeCapacity.FitVisible(tracker, y) end
+    for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end
     scrollRows, scrollLast = paging and rows or nil, lastDrawn
     scrollIndex = startIndex
     local first = rows[startIndex]
     scrollKey = paging and first and (first.type == "heading" and "zone:" .. first.zone
         or "quest:" .. tostring(first.entry.id)) or nil
-    -- Los resaltados se repintan despues de ocultar/mostrar; asi no dependen
-    -- del orden de registro de los hooks EndLayout entre modulos.
-    if ns.RecentQuests and ns.RecentQuests.RepaintRendered then
-        ns.RecentQuests.RepaintRendered()
+    updatePager(content,fullView,fallbackPager,startIndex,lastDrawn,#rows)
+    if ns.Perf then
+        if paging then ns.Perf.Count("layout.viewport.overflow") end
+        if ns.Perf.Trace then ns.Perf.Trace("viewport",fullView,needed,#rows,lastDrawn) end
     end
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
-refreshVisual = function(fromNative)
-    if unsafe() then return end
+refreshVisual = function(fromNative, origins)
+    if applying or unsafe() then return end
+    if ns.Perf then
+        ns.Perf.Count("layout.render.attempt")
+        if type(origins)=="string" then
+            ns.Perf.Count("render.source."..origins)
+            ns.Perf.Trace("render",origins)
+        elseif type(origins)=="table" then
+            local labels={}
+            for source in pairs(origins) do ns.Perf.Count("render.source."..source);labels[#labels+1]=source end
+            table.sort(labels)
+            ns.Perf.Trace("render",table.concat(labels,","))
+        else ns.Perf.Count("render.source.unknown") end
+    end
     local tracker = _G.QuestObjectiveTracker
     if tracker then
-        if ns.NativeCapacity then ns.NativeCapacity.Initialize(tracker, refreshVisual) end
+        -- Native layouts are the only automatic source of visual invalidation.
+        -- User actions reuse the data from the most recent native layout.
+        if fromNative then
+            cacheDirty=true
+            if next(searchCorpus) then searchCorpus={} end
+        end
         render(tracker, fromNative)
+        if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
+function Zones.HandlesRecent() return hooked end
 local function installHooks()
     if hooked or type(hooksecurefunc) ~= "function" then return end
     local tracker = _G.QuestObjectiveTracker
@@ -575,7 +802,7 @@ local function installHooks()
         or (type(tracker.LayoutContents) == "function" and "LayoutContents")
     if not method then return end
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
-        if not unsafe() then refreshVisual(true) end
+        if not unsafe() then scheduleVisual(true,"native."..method) end
     end)
     if ok then hooked = true end
 end
@@ -614,8 +841,9 @@ local function makeSearch()
         field:Hide()
         header.Text:Show()
         searchQuery, searchCorpus = "", {}
+        scrollIndex,scrollKey=1,nil
         searchClosing = false
-        refreshVisual(false)
+        refreshVisual(false, "ui.search.close")
     end
     -- Conservar el manejador de la plantilla: actualiza Buscar, la lupa y
     -- el boton de borrado antes de aplicar nuestro filtro.
@@ -623,8 +851,9 @@ local function makeSearch()
         if searchClosing then return end
         local value = lower((self:GetText() or ""):match("^%s*(.-)%s*$"))
         if value ~= searchQuery then
-            searchQuery, searchCorpus = value, {}
-            refreshVisual(false)
+            searchQuery = value
+            scrollIndex,scrollKey=1,nil
+            refreshVisual(false, "ui.search.text")
         end
         -- El clic en borrar puede quitar el foco antes de vaciar el campo.
         -- En ese orden no llega un segundo OnEditFocusLost.
@@ -681,9 +910,10 @@ function Zones.PositionSearchBefore(anchor)
 end
 -- Enganchar la rueda exclusivamente al modulo nativo, sin modificar su
 -- enumerador ni invocar MarkDirty/Update/LayoutContents desde Lua inseguro.
-local function configureWheel()
+configureWheel = function(overflow)
     local tracker = _G.QuestObjectiveTracker
-    if not tracker or unsafe() then return end
+    if not tracker or unsafe() then return false end
+    if overflow==nil then overflow=scrollRows~=nil end
     local target = tracker
     if type(target.IsProtected) == "function" and safe(target.IsProtected,target)==true then
         target=tracker.ContentsFrame
@@ -692,65 +922,94 @@ local function configureWheel()
     end
     if type(target.EnableMouseWheel)~="function" then return end
     if wheelHooked then
-        if wheelTracker==target and oldWheelEnabled~=nil then
-            pcall(target.EnableMouseWheel,target,
-                option("trackerScrollBeta") or oldWheelEnabled)
+        if wheelTracker and oldWheelEnabled~=nil then
+            local wanted = overflow or oldWheelEnabled
+            if safe(wheelTracker.IsMouseWheelEnabled,wheelTracker) ~= wanted then
+                pcall(wheelTracker.EnableMouseWheel,wheelTracker,wanted)
+            end
+            return safe(wheelTracker.IsMouseWheelEnabled,wheelTracker)==true
         end
-        return
+        return false
     end
     if type(target.GetScript)~="function" or type(target.HookScript)~="function" then return end
     -- Respeto al scroll que ya tenga el cliente u otro addon.
-    if safe(target.GetScript,target,"OnMouseWheel") then return end
+    -- HookScript preserves any existing handler. A handler already attached to
+    -- the same target may also scroll; avoid double movement by using our own
+    -- listener only on a separate, unclaimed ContentsFrame when possible.
+    if safe(target.GetScript,target,"OnMouseWheel") then
+        local content=tracker.ContentsFrame
+        if content and content ~= target and canMove(content)
+            and type(content.HookScript)=="function"
+            and type(content.EnableMouseWheel)=="function"
+            and not safe(content.GetScript,content,"OnMouseWheel") then
+            target=content
+        else return end
+    end
     oldWheelEnabled = type(target.IsMouseWheelEnabled)=="function"
         and safe(target.IsMouseWheelEnabled,target)==true or false
     local ok = pcall(target.HookScript,target,"OnMouseWheel",function(self,delta)
-        if unsafe() or self ~= wheelTracker or not option("trackerScrollBeta")
-            or not scrollRows or type(delta) ~= "number" then return end
+        if unsafe() or self ~= wheelTracker
+            or not scrollRows or type(delta) ~= "number" or delta==0 then return end
         local step = delta > 0 and -1 or 1
         local index = scrollIndex + step
         if index < 1 or index > #scrollRows then return end
         if step > 0 and scrollLast >= #scrollRows then return end
         scrollIndex, scrollKey = index, nil
-        refreshVisual(false)
+        refreshVisual(false, "ui.wheel")
     end)
     if ok then
         wheelHooked,wheelTracker=true,target
-        pcall(target.EnableMouseWheel,target,
-            option("trackerScrollBeta") or oldWheelEnabled)
+        pcall(target.EnableMouseWheel,target,overflow or oldWheelEnabled)
+        return safe(target.IsMouseWheelEnabled,target)==true
     end
+    return false
 end
 
-local scheduled = false
-local function scheduleVisual()
-    if scheduled or unsafe() then return end
+local scheduled, pendingNative, pendingSources = false, false, {}
+scheduleVisual = function(fromNative, source)
+    if unsafe() then return end
+    source=source or "unknown"
+    if ns.Perf then ns.Perf.Count("request.source."..source) end
+    pendingSources[source]=true
+    pendingNative = pendingNative or fromNative == true
+    if scheduled then
+        if ns.Perf then ns.Perf.Count("layout.coalesced") end
+        return
+    end
+    local function flush()
+        scheduled = false
+        local native, sources = pendingNative,pendingSources
+        pendingNative,pendingSources = false,{}
+        if unsafe() then return end
+        installHooks()
+        if not wheelHooked then configureWheel() end
+        refreshVisual(native,sources)
+    end
     if C_Timer and type(C_Timer.After) == "function" then
         scheduled = true
-        C_Timer.After(0.05, function()
-            scheduled = false
-            installHooks()
-            configureWheel()
-            refreshVisual(false)
-        end)
-    else
-        refreshVisual(false)
-    end
+        C_Timer.After(0, flush)
+    else flush() end
 end
 function Zones.Initialize()
     installHooks()
     makeSearch()
     configureWheel()
-    for _, name in ipairs({"PLAYER_ENTERING_WORLD", "QUEST_LOG_UPDATE", "QUEST_WATCH_LIST_CHANGED",
-        "QUEST_ACCEPTED", "QUEST_REMOVED", "QUEST_TURNED_IN", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED"}) do
+    -- Login is bootstrap only; combat events are safety/restore boundaries.
+    -- No quest events here: Blizzard owns the timing of the native layout.
+    for _, name in ipairs({"PLAYER_ENTERING_WORLD","PLAYER_REGEN_ENABLED","PLAYER_REGEN_DISABLED"}) do
         pcall(eventFrame.RegisterEvent, eventFrame, name)
     end
-    scheduleVisual()
+    scheduleVisual(false,"init")
 end
 function Zones.RefreshAfterWatchSwap()
-    -- El antiguo scrollKey apuntaba a una instantánea diferente de watches.
+    -- The explicit native turn-in filter may change watches. Only reset the
+    -- page; wait for Blizzard's EndLayout to render the resulting blocks.
     scrollIndex, scrollKey, scrollRows = 1, nil, nil
-    scheduleVisual()
+    cacheDirty=true
+    searchCorpus={}
 end
 function Zones.RefreshSettings(key)
+    if key ~= "trackerSearchButton" and key ~= "trackerScrollBeta" and key ~= "trackerZoneSections" and key ~= "trackerSortMode" then return end
     if key == "trackerSearchButton" then
         makeSearch()
         if not option("trackerSearchButton") and searchVisible and searchBox then
@@ -764,8 +1023,9 @@ function Zones.RefreshSettings(key)
     elseif key == "trackerScrollBeta" then
         scrollIndex, scrollKey = 1, nil
         configureWheel()
+        makeSearch()
     end
-    scheduleVisual()
+    scheduleVisual(false,"setting."..key)
 end
 -- Diagnóstico a demanda: permite distinguir en el juego si Blizzard
 -- está entregando un bloque real o una fila auxiliar para cada questID.
@@ -810,6 +1070,7 @@ function Zones.GetDiagnosticState()
     return {index=scrollIndex, last=scrollLast, rows=scrollRows and #scrollRows or 0,
         key=scrollKey, query=searchQuery, native=nativeWatches, watches=totalWatches,
         auxiliary=auxiliary, geometry=geometry, collapsed=collapsed,
+        viewport=lastViewport, contentHeight=lastContentHeight,
         capacity=ns.NativeCapacity and ns.NativeCapacity.GetState()}
 end
 function Zones.Debug()
@@ -825,8 +1086,16 @@ eventFrame:SetScript("OnEvent", function(_, event)
         hideHeadings()
         return
     end
-    if event ~= "PLAYER_REGEN_ENABLED" then cacheDirty = true end
-    searchCorpus = {}
-    if event == "PLAYER_ENTERING_WORLD" then installHooks(); makeSearch(); configureWheel() end
-    if not unsafe() then scheduleVisual() end
+    if event == "PLAYER_ENTERING_WORLD" then
+        local wasHooked=hooked
+        cacheDirty=true
+        searchCorpus={}
+        installHooks(); makeSearch(); configureWheel()
+        -- Do not render again if the native hook is already installed.
+        if not wasHooked then scheduleVisual(false,"bootstrap") end
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        -- Combat can suppress a native callback. Restore presentation once.
+        installHooks()
+        if not unsafe() then scheduleVisual(true,"safety.combat_end") end
+    end
 end)
