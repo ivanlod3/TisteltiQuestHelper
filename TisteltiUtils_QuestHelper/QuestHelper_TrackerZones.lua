@@ -8,7 +8,6 @@ ns.TrackerZones = Zones
 local eventFrame = CreateFrame("Frame")
 local headings = {}
 local pager, lastViewport, lastContentHeight
-local compactHeight, professionHooked
 local positions = setmetatable({}, { __mode = "k" })
 local hiddenByUs = setmetatable({}, { __mode = "k" })
 local hiddenItems = setmetatable({}, { __mode = "k" })
@@ -460,7 +459,6 @@ local function collectRendered(tracker)
     return result
 end
 local function render(tracker, fromNative)
-    compactHeight=nil
     if applying or unsafe() or not tracker or not tracker.ContentsFrame then return end
     if ns.TurnInFilter and ns.TurnInFilter.IsSwapping
         and ns.TurnInFilter.IsSwapping() then return end
@@ -756,9 +754,6 @@ local function render(tracker, fromNative)
         end
     end
     for i = headingsUsed + 1, #headings do local frame=headings[i].frame; if safe(frame.IsShown,frame)==true then frame:Hide() end end
-    -- Do not overlap a live quest wheel viewport. Only compact a complete,
-    -- non-paged presentation; keep the full native allocation on overflow.
-    if not paging then compactHeight=y end
     scrollRows, scrollLast = paging and rows or nil, lastDrawn
     scrollIndex = startIndex
     local first = rows[startIndex]
@@ -772,7 +767,7 @@ local function render(tracker, fromNative)
     applying = false
     if ns.Diagnostics then ns.Diagnostics.Capture("after-addon") end
 end
-refreshVisual = function(fromNative, origins, deferCompaction)
+refreshVisual = function(fromNative, origins)
     if applying or unsafe() then return end
     if ns.Perf then
         ns.Perf.Count("layout.render.attempt")
@@ -795,34 +790,12 @@ refreshVisual = function(fromNative, origins, deferCompaction)
             if next(searchCorpus) then searchCorpus={} end
         end
         render(tracker, fromNative)
-        if ns.ModuleLayout and not deferCompaction then ns.ModuleLayout.Apply(tracker,compactHeight) end
         if ns.RecentQuests and ns.RecentQuests.RepaintRendered then ns.RecentQuests.RepaintRendered() end
     end
 end
--- Container anchoring occurs after the native module EndLayout. Defer only
--- the compacting anchor, not the quest presentation. Coalesce both modules.
-local compactionPending=false
-local function scheduleCompaction()
-    if not ns.ModuleLayout or compactionPending or unsafe() then return end
-    if not C_Timer or type(C_Timer.After)~="function" then return end
-    compactionPending=true
-    C_Timer.After(0,function()
-        compactionPending=false
-        if not unsafe() and not applying then
-            ns.ModuleLayout.Apply(_G.QuestObjectiveTracker,compactHeight)
-        end
-    end)
-end
 function Zones.HandlesRecent() return hooked end
 local function installHooks()
-    if type(hooksecurefunc) ~= "function" then return end
-    local profession=_G.ProfessionsRecipeTracker
-    if not professionHooked and profession and type(profession.EndLayout)=="function" then
-        professionHooked=pcall(hooksecurefunc,profession,"EndLayout",function()
-            if not unsafe() then scheduleCompaction() end
-        end)
-    end
-    if hooked then return end
+    if hooked or type(hooksecurefunc) ~= "function" then return end
     local tracker = _G.QuestObjectiveTracker
     if not tracker or type(tracker.GetExistingBlock) ~= "function" then return end
     local method = type(tracker.EndLayout) == "function" and "EndLayout"
@@ -831,11 +804,14 @@ local function installHooks()
     local ok = pcall(hooksecurefunc, tracker, method, function(self)
         if unsafe() or applying then return end
         if method == "EndLayout" then
+            -- Blizzard has already built and sized the blocks. Restore the
+            -- presentation in this same call stack, before a frame can draw
+            -- the temporary native order/visibility. Do not request a layout.
             if ns.Perf then ns.Perf.Count("request.source.native."..method) end
-            refreshVisual(true,"native."..method,true)
-            scheduleCompaction()
+            refreshVisual(true,"native."..method)
         else
-            -- Older clients need the deferred path until unused blocks are freed.
+            -- LayoutContents runs before EndLayout; older clients need the
+            -- deferred path so unused blocks are released first.
             scheduleVisual(true,"native."..method)
         end
     end)
@@ -1026,6 +1002,7 @@ scheduleVisual = function(fromNative, source)
     else flush() end
 end
 function Zones.Initialize()
+    if ns.TrackerAccordion then ns.TrackerAccordion.Initialize(false) end
     installHooks()
     makeSearch()
     configureWheel()
@@ -1122,6 +1099,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         return
     end
     if event == "PLAYER_ENTERING_WORLD" then
+        if ns.TrackerAccordion then ns.TrackerAccordion.Initialize(true) end
         local wasHooked=hooked
         cacheDirty=true
         searchCorpus={}
@@ -1129,6 +1107,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
         -- Do not render again if the native hook is already installed.
         if not wasHooked then scheduleVisual(false,"bootstrap") end
     elseif event == "PLAYER_REGEN_ENABLED" then
+        if ns.TrackerAccordion then ns.TrackerAccordion.Initialize(true) end
         -- Combat can suppress a native callback. Restore presentation once.
         installHooks()
         if not unsafe() then scheduleVisual(true,"safety.combat_end") end

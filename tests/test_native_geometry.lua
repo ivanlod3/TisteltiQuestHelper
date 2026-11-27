@@ -321,27 +321,3 @@ assert(blocks[101]:GetNumPoints()==1 and blocks[101]:GetPoint(1)=='TOPLEFT')
 assert(blocks[101].anchors[1][4]==33 and ns.TrackerZones.GetDiagnosticState().rows==0)
 assert(watchWrites==0 and nativeCalls==0,'se altero seguimiento o layout nativo')
 print("OK geometria exclusivamente nativa, scroll, busqueda, plegado y cero cambios de seguimiento")
-
--- Combined branch: the quest presentation is immediate, but the profession
--- anchor must wait until the parent has finished its native re-anchoring.
-opts.trackerZoneSections=true
-TisteltiQuestHelperCharDB.trackerFoldedZones={}
-resetNative();render(tracker,true)
-local hds=assert(upvalue(ns.TrackerZones.Initialize,"headings"))
-hds[1].frame.scripts.OnClick()
-local queued,applies,renders={},0,0
-ns.ModuleLayout={Apply=function(_,height)applies=applies+1;assert(type(height)=="number")end}
-ns.Perf={Count=function(k)if k=="layout.render" then renders=renders+1 end end,Trace=function()end}
-_G.ProfessionsRecipeTracker={EndLayout=function()end}
-local install=assert(upvalue(ns.TrackerZones.Initialize,"installHooks"))
-install()
-C_Timer.After=function(_,f)queued[#queued+1]=f end
-resetNative()
-tracker:EndLayout()
-for _,id in ipairs(ids)do assert(not blocks[id]:IsShown(),"folded quest flashed in combined branch")end
-assert(applies==0 and #queued==1 and renders==1,"quest layout or compaction timing wrong")
-_G.ProfessionsRecipeTracker:EndLayout()
-assert(#queued==1 and renders==1,"profession triggered duplicate quest presentation")
-queued[1]()
-assert(applies==1 and renders==1,"deferred compaction repainted quests")
-print("OK immediate quest layout and coalesced deferred compaction")

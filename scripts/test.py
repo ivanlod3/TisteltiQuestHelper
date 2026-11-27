@@ -27,7 +27,7 @@ def main():
         ('test_v51_sort.lua', [ADDON/'QuestHelper_TrackerSort.lua']),
         ('test_v51_filter_swap.lua', [ADDON/'QuestHelper_Status.lua', ADDON/'QuestHelper_TurnInFilter.lua']),
         ('test_native_geometry.lua', [ADDON]),
-        ('test_module_compaction.lua', [ADDON]),
+        ('test_tracker_accordion.lua', [ADDON]),
         ('test_recent_progress.lua', [ADDON]),
         ('test_quest_state.lua', [ADDON]),
         ('test_capacity_feedback.lua', [ADDON]),
